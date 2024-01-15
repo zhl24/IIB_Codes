@@ -1,3 +1,11 @@
+import numpy as np
+from scipy.linalg import expm #This is the automatic matrix expnent solver
+from jump_process_generators import *
+import matplotlib.pyplot as plt
+
+
+
+
 def Kalman_Predict(x_mean,x_variance,x_transition,x_noise_variance,x_noise_mean = 0): #Hidden state x predict step. 
 #Note that the noise is generally not zero mean in our case.
 #This function takes the mean and variance of the current hidden state and the transition architecture to predict the next state mean and variance
@@ -45,3 +53,38 @@ def Noisy_Normal_Gamma_SDE_Filter(noisy_sequence,observation_noise_var,SDE,subor
         s = evaluation_point
     return inferred_x,inferred_var
         
+
+
+
+
+#The most general multi-dimensional Kalman filtering functions for the NVM SDE model:
+#Here we define a single step in Kalman filter such that it can 
+# We just need to define f, g, W (mw,Q) and V (mv,R)
+
+#The first two inputs are the current state. f is the transition matrix, mw is the state noise mean and Q is the state noise covariance
+
+def Kalman_transit(X,P,f,Q,mw = 0,B=0,u=0):
+    if B == 0 :
+        return f@X+mw, f@P@f.transpose()+Q
+    else:
+        return f@X+mw + B@u, f@P@f.transpose()+Q
+#We again need the current states as the first two inputs, but now we need an obervation. g is the emission matrix, mv and R are 
+#the observation mean and noises which determine most of the Kalman filtering difficulties
+def Kalman_correct(X,P,Y,g,R,mv = 0):
+    Ino = Y - g @ X -mv#The innovation term. Note that for the biased noise case there would be a subtraction here. All other terms are not affected
+    S = g @ P @ g.transpose() + R #The innovation covariance
+    K = P @ g.transpose() @ np.linalg.inv(S)
+    n = np.shape(P)[0]
+    I = np.identity(n)
+    return X + K@Ino,(I-K@g)@P
+
+
+
+
+
+
+# Bootstrap Particle Filtering in General NVM State Space:
+
+
+
+
