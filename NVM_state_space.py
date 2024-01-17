@@ -55,13 +55,15 @@ class SDE(Levy_Point_Process):
             system_jumps = []
             for j,jump_time in enumerate(jump_times):
                 NVM_jump = NVM_jumps[j]
-                system_jump = NVM_jump * expm(A * (evaluation_point-jump_time)) @ h
+                system_jump = NVM_jump * expm(self.A * (evaluation_point-jump_time)) @ self.h
                 system_jumps.append(list(system_jump))
                 
             samples.append(self.general_integrate([evaluation_point],system_jumps,jump_times)[0])#Extracting the single element at evaluation
         samples = np.array(samples)
         # Squeeze the array to remove the last dimension
-        samples = np.squeeze(samples, axis=-1)     
+        if samples.shape[-1] == 1:
+            samples = np.squeeze(samples, axis=-1)
+
         if plot_NVM:
             plt.figure()
             plt.plot(evaluation_points,NVM_paths)

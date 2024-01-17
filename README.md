@@ -1,1 +1,2 @@
-Working is mostly in the two jupyter notebooks for python and julia
+The two michaelmas experiment notebooks include most of the implementations of jump process and state space model generators, and the Kalman filtering or marginalized particle filtering with ideal proposal for the non-linear dynamics schemes for noisy observations in the state space models, in both python and turing.
+The resultant functions have been packed into jump_process_generators.py, NVM_state_space.py and NVM_state_space filters.py. The other files or directories are from other people's work. The pdfs are the documentations for all studying and derivations of the work.
