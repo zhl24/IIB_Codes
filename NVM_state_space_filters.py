@@ -2,7 +2,7 @@ import numpy as np
 from scipy.linalg import expm #This is the automatic matrix expnent solver
 from jump_process_generators import *
 import matplotlib.pyplot as plt
-
+from scipy.special import logsumexp
 
 
 
@@ -86,25 +86,9 @@ def Kalman_correct(X,P,Y,g,R,mv = 0):
 # Bootstrap Particle Filtering in General State Space Model in one step. Particle filteirng is itself by nature a general dimensional method. Since pdf maps vector samples into scalar probabilitiei.e. weights
 #The most important point about filtering in the state spce model is the knowledge of time, t and dt.
 #Just need to additionally define the transition function to simulate the particles forwards, and likelihood function to compute the particle probabilities given the observations. Here we just assume standard normal noise
-def bootstrap_particle_filtering(observation, particles, weights, transition_function, likelihood_function,dt,t,sigma):
-    num_particles = len(particles)
-    # Transition step: move each particle according to the transition model
-    particles = transition_function(particles,dt,t)
 
-    # Compute weights based on observation likelihood
-    weights = likelihood_function(particles,observation,sigma) * weights #Th previous weights are always the uniform distribution
-    weights = weights/np.sum(weights) #Normalization step
-    # Resampling step: resample particles based on their weights
-    indices = np.random.choice(np.arange(num_particles), size=num_particles, p=weights)
-    particles = particles[indices] #The resample particles are returned
-    weights = np.ones(num_particles)/num_particles
-    return particles,weights
-
-
-
-
-
-#Functions for particle filtering in the Levy state space system.
+#We the try to filter from the noisy observations using particle filtering. Define the transition function and likelihood function to do that
+#The generator for particle filter!
 def transition_function_exact_case(particles,dt,matrix_exp): #dt is the length of forwards simulation. t is the evaluation point
     new_particles = []
     #We assume first that we know the exact generator for the process
@@ -178,3 +162,139 @@ def bootstrap_particle_filtering(observation, particles, weights, transition_fun
     weights = np.full(num_particles, 1.0 / num_particles)
 
     return particles, weights
+
+def weighted_sum(particles, weights):
+    return np.sum(particles * weights[:, np.newaxis], axis=0)
+
+
+def compute_log_likelihoods(particles, observation, sigma):
+    distances_squared = np.sum((particles - observation)**2, axis=1)
+    log_likelihoods = -distances_squared / (2 * sigma**2)
+    return log_likelihoods
+
+def normalize_log_probabilities(log_probs):
+    max_log_prob = np.max(log_probs)
+    stabilized_log_probs = log_probs - max_log_prob
+    sum_of_exps = np.sum(np.exp(stabilized_log_probs))
+    log_normalizer = np.log(sum_of_exps)
+    normalized_log_probs = stabilized_log_probs - log_normalizer
+    return normalized_log_probs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Below is the code for marginalized particle filter. Note that the current implementation is based on the full particle filtering algorithm, so only a few functions that return additional features are redefined here. Other functions are the same as ther particle filteirng function
+
+def transition_function_mpf(particles,dt,matrix_exp): #dt is the length of forwards simulation. t is the evaluation point
+    new_particles = []
+    particles_gaussian_parameters = []
+    #We assume first that we know the exact generator for the process
+    theta = -2 #The main control parameter for the Lagevin system
+    beta = 5
+    C = 0.1
+    T = dt
+    muw = 0
+    sigmaw = 1
+    #Define the Langevin dynamics
+    A = np.zeros((2, 2))
+    A[0, 1] = 1
+    A[1, 1] = theta
+    h = np.array([[0], [1]])
+
+    #Simulation over dt interval to obtain the jumps and jump times
+    evaluation_points = [dt] #Note that this would be the time axis we work on.
+    normal_gamma_generator = normal_gamma_process(beta, C, T, muw, sigmaw)
+    for particle in particles:
+        ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True)
+        #The jumpss and time already before dt
+        
+
+        #Then we solve for the summation
+        system_jumps = []
+        mean = 0
+        cov = 0
+        if len(jump_times)>1:
+            for ng_jump,jump_time,g_jump in zip(ng_jumps,jump_times,g_jumps):
+                special_vector = expm(-A * jump_time) @ h
+                mean += muw * g_jump * special_vector
+                cov+= sigmaw**2 * g_jump * special_vector @ special_vector.T
+                system_jump = ng_jump * special_vector
+                system_jumps.append(system_jump)
+            # Use the mask to select data from x_series and sum along the time axis (axis=0)
+            sum_over_time = np.sum(system_jumps, axis=0)
+            sum_over_time = np.squeeze(sum_over_time)
+        elif len(jump_times) == 1:
+            special_vector = expm(-A * jump_times) @ h
+            mean = muw * g_jumps * special_vector
+            cov = sigmaw**2 * g_jumps * special_vector @ special_vector.T
+            system_jump = ng_jumps * special_vector
+            system_jumps.append(system_jump)
+            sum_over_time = np.sum(system_jumps, axis=0)
+            sum_over_time = np.squeeze(sum_over_time)
+        else:
+    # Initialize sum_over_time as a zero array of the same shape as a particle
+            sum_over_time = np.zeros(2)
+            sum_over_time = np.squeeze(sum_over_time)
+            mean = np.zeros(2) #No jump so not applicable
+            cov = np.zeros((2,2))
+        #print(np.shape(sum_over_time))
+        #print(np.shape( matrix_exp@particle))
+        new_particles.append(sum_over_time + matrix_exp@particle)
+        particles_gaussian_parameters.append([mean,cov])
+    return np.squeeze(np.array(new_particles)),particles_gaussian_parameters
+
+
+
+
+
+def particle_filtering_mpf(observation, particles, weights, transition_function, likelihood_function, matrix_exp, dt, sigma):
+    num_particles = len(particles)
+
+    # Transition step: move each particle according to the transition model
+    particles,particles_gaussian_parameters = transition_function(particles, dt, matrix_exp=matrix_exp)
+
+    # Update weights based on observation likelihood
+    weights *= likelihood_function(particles, observation, sigma)
+    weights /= np.sum(weights)  # Normalization
+
+    # Resampling step: resample particles based on their weights
+    indices = np.random.choice(np.arange(num_particles), size=num_particles, p=weights)
+    particles = particles[indices]  # The resampled particles
+
+    # Reset weights to 1/N for the resampled particles
+    weights = np.full(num_particles, 1.0 / num_particles)
+
+    return particles, weights,particles_gaussian_parameters
+
+
+
+def compute_inferred_gaussian_parameters(particles_gaussian_parameters, weights):
+    """
+    Compute the inferred Gaussian parameters (mean and covariance) from the particle parameters.
+
+    :param particles_gaussian_parameters: List of tuples [(m1, S1), (m2, S2), ...] where m is mean and S is covariance
+    :param weights: Corresponding weights of the particles
+    :return: Tuple (inferred_mean, inferred_covariance)
+    """
+    weights = weights/np.sum(weights)
+    inferred_mean = 0
+    inferred_covariance = 0
+    for particle_gaussian_parameters,weight in zip(particles_gaussian_parameters,weights):
+        m,S = particle_gaussian_parameters
+        if np.sum(S) != 0 and m.size>0:
+            
+            inferred_mean += m * weight
+            inferred_covariance += S * weight
+        else:
+            continue
+    return inferred_mean, inferred_covariance
