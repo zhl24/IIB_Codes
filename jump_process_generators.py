@@ -171,7 +171,8 @@ class normal_gamma_process(Levy_Point_Process):
             NVM_jumps = np.ones(len(subordinator_jumps))*self.muw*subordinator_jumps+self.sigmaw*np.sqrt(subordinator_jumps)*np.random.randn(len(subordinator_jumps))
             
             return self.integrate(evaluation_points,NVM_jumps,jump_times)
-    def generate_normal_gamma_samples_from_joint(self,evaluation_points,N):
+    def generate_normal_gamma_samples_from_joint(self,evaluation_points):
+        N = len(evaluation_points)
         gamma_samples = np.array(self.generate_gamma_samples(evaluation_points))#These would be the Gamma samples along the process
         normal_gamma_samples = np.random.randn(N)*np.sqrt(gamma_samples) * self.sigmaw + gamma_samples * self.muw
         return normal_gamma_samples
