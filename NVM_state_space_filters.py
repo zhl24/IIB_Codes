@@ -6,19 +6,19 @@ from scipy.special import logsumexp
 
 
 
-def Kalman_Predict(x_mean,x_variance,x_transition,x_noise_variance,x_noise_mean = 0): #Hidden state x predict step. 
+def Kalman_Predict_1D(x_mean,x_variance,x_transition,x_noise_variance,x_noise_mean = 0): #Hidden state x predict step. 
 #Note that the noise is generally not zero mean in our case.
 #This function takes the mean and variance of the current hidden state and the transition architecture to predict the next state mean and variance
     return x_mean*x_transition+x_noise_mean,x_variance*x_transition**2 + x_noise_variance
 
-def Kalman_Correct(x_mean,x_variance,observation,emission,emission_noise_variance):
+def Kalman_Correct_1D(x_mean,x_variance,observation,emission,emission_noise_variance):
     I = observation - emission * x_mean
     return x_mean + (emission * x_variance)/(emission**2 * x_variance + emission_noise_variance)*I, x_variance * (1-emission**2 * x_variance/(emission**2*x_variance+emission_noise_variance))
 #evaluation points just form the time axis
 #We then simply need the subordinator jumps and jump times to compute the x_noise mean and variances
 #emission is simply 1 in our model. emission_noise_variance is just the simga_n term in the model
 
-def Noisy_Normal_Gamma_SDE_Filter(noisy_sequence,observation_noise_var,SDE,subordinator_jumps,jump_times,evaluation_points,Kalman_Predict,Kalman_Correct,x_mean_prior=0,x_variance_prior=1):
+def Noisy_Normal_Gamma_SDE_Filter_1D(noisy_sequence,observation_noise_var,SDE,subordinator_jumps,jump_times,evaluation_points,Kalman_Predict,Kalman_Correct,x_mean_prior=0,x_variance_prior=1):
     A = SDE.A
     h = SDE.h
     T = SDE.T
@@ -63,20 +63,25 @@ def Noisy_Normal_Gamma_SDE_Filter(noisy_sequence,observation_noise_var,SDE,subor
 
 #The first two inputs are the current state. f is the transition matrix, mw is the state noise mean and Q is the state noise covariance
 
-def Kalman_transit(X,P,f,Q,mw = 0,B=0,u=0):
-    if B == 0 :
+def Kalman_transit(X,P,f,Q,mw = 0,B=0,u=0,return_marginal = False): #the inputs include the current mean and covariance prediction for X, X and P, the transition function f and noise covariance matrix Q. mw is the noise mean. B and u are the contributions from inputs.
+    if B == 0 : #The usual case without control input
         return f@X+mw, f@P@f.transpose()+Q
-    else:
-        return f@X+mw + B@u, f@P@f.transpose()+Q
+    else: #The case with control input. However, this is only for the system in the MIT lterature. The system discussed in this IIB project has no control input feature.
+        return f@X+mw + B@u, f@P@f.T+Q
+    
 #We again need the current states as the first two inputs, but now we need an obervation. g is the emission matrix, mv and R are 
 #the observation mean and noises which determine most of the Kalman filtering difficulties
 def Kalman_correct(X,P,Y,g,R,mv = 0):
-    Ino = Y - g @ X -mv#The innovation term. Note that for the biased noise case there would be a subtraction here. All other terms are not affected
-    S = g @ P @ g.transpose() + R #The innovation covariance
-    K = P @ g.transpose() @ np.linalg.inv(S)
+    #I think the mistake could be in how the innovation term is formulated? Cause thats the only one with own derivation. Maybe in the subtraction?
+    Ino = Y - g @ X - mv #mv is 0 in our implementation, just for the case of biased noise
+    
+    S = g @ P @ g.T + R #The innovation covariance
+    K = P @ g.T @ np.linalg.inv(S)
     n = np.shape(P)[0]
     I = np.identity(n)
     return X + K@Ino,(I-K@g)@P
+
+
 
 
 
