@@ -2,6 +2,7 @@ import numpy as np
 from scipy.linalg import expm #This is the automatic matrix expnent solver
 import math
 from scipy.special import logsumexp
+from basic_tools import *
 #This is the parent class ofr all jump processes, with functions of integrating jumps to create process paths.
 class Levy_Point_Process:
     #This is the parent class to define a public method for the Gamma and tempered stable processes to give the output series

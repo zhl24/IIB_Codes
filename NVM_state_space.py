@@ -3,6 +3,7 @@ from scipy.linalg import expm #This is the automatic matrix expnent solver
 from jump_process_generators import *
 import matplotlib.pyplot as plt
 from scipy.special import logsumexp
+from basic_tools import *
 
 # 1D state space model driven by an NVM process, 
 class SDE_1D_finite(Levy_Point_Process):
