@@ -62,17 +62,13 @@ def Noisy_Normal_Gamma_SDE_Filter_1D(noisy_sequence,observation_noise_var,SDE,su
 # We just need to define f, g, W (mw,Q) and V (mv,R)
 
 #The first two inputs are the current state. f is the transition matrix, mw is the state noise mean and Q is the state noise covariance
-
+#Remember that all the operations in Kalman filter are in column vector convention.
 def Kalman_transit(X, P, f, Q, mw=0, B=0, u=0, return_marginal=False):
-    # Ensure X is a column vector
-    X = np.reshape(X, (-1, 1))
-
     # Perform matrix multiplication
     X_new = f @ X
-
-
-    # Add mw to X_new
-    X_new += mw
+    
+    if mw.all() != 0:
+        X_new += mw
 
     # Handle control input B and u
     if B != 0:
@@ -89,7 +85,7 @@ def Kalman_transit(X, P, f, Q, mw=0, B=0, u=0, return_marginal=False):
     
 #We again need the current states as the first two inputs, but now we need an obervation. g is the emission matrix, mv and R are 
 #the observation mean and noises which determine most of the Kalman filtering difficulties
-def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False):
+def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False): #The log_marginal returned would be used as the particle weight in marginalised particle filtering scheme.
     Ino = Y - g @ X - mv  # Innovation term
     
     S = g @ P @ g.T + R  # Innovation covariance
@@ -195,8 +191,7 @@ def bootstrap_particle_filtering(observation, particles, weights, transition_fun
 
     return particles, weights
 
-def weighted_sum(particles, weights):
-    return np.sum(particles * weights[:, np.newaxis], axis=0)
+
 
 
 def compute_log_likelihoods(particles, observation, sigma):
@@ -360,7 +355,8 @@ def transition_function_general(particles,dt,matrix_exp,SDE_model,mpf = False): 
     sigmaw = normal_gamma_generator.sigmaw
     if not mpf:
         for particle in particles:
-            ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True) #Note that these are all lists!!!! Need to convert them into arrays for any computation.
+            ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True) 
+            #Make sure that these are arrays before putting them in vector computation
             #The jumpss and time already before dt
             ng_paths = np.array(ng_paths)
             ng_jumps = np.array(ng_jumps)
@@ -392,21 +388,21 @@ def transition_function_general(particles,dt,matrix_exp,SDE_model,mpf = False): 
                 sum_over_time = np.squeeze(sum_over_time)
             else:
         # Initialize sum_over_time as a zero array of the same shape as a particle
-                sum_over_time = np.zeros(2)
+                sum_over_time = np.zeros((x_dim,1))
                 sum_over_time = np.squeeze(sum_over_time)
-                mean = np.zeros(2) #No jump so not applicable
-                cov = np.zeros((2,2))
+                mean = np.zeros((x_dim,1)) #No jump so not applicable
+                cov = np.zeros((x_dim,x_dim))
             #print(np.shape(sum_over_time))
             #print(np.shape( matrix_exp@particle))
             new_particle = sum_over_time + matrix_exp @ particle
-            new_particles.append(new_particle.reshape(-1, 1))
+            new_particles.append(new_particle)
             particles_gaussian_parameters.append([mean,cov])
     
         return np.squeeze(np.array(new_particles))
     
     else: #The particles would be the Gaussian parameters now
         for particle in particles:
-            ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True)# These are all lists!!!!
+            ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True)
 
             ng_paths = np.array(ng_paths)
             ng_jumps = np.array(ng_jumps)
@@ -414,7 +410,7 @@ def transition_function_general(particles,dt,matrix_exp,SDE_model,mpf = False): 
             g_jumps = np.array(g_jumps)
 
             #The jumpss and time already before dt
-            print(g_jumps)
+            #print(g_jumps)
 
             #Then we solve for the summation
             
@@ -494,17 +490,14 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
         #print(np.shape(previous_X))
         #print(previous_X)
         #print(nx0)
-        print(noise_mean)
-        print(np.shape(noise_mean))
-        noise_mean = np.array(noise_mean).reshape(len(noise_mean), 1)
+        #print(noise_mean)
+        #print(np.shape(noise_mean))
+        noise_mean = np.array(noise_mean).reshape(len(noise_mean), 1) #In the muw = 0 case, this would be 0 throughout
         inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, matrix_exp, noise_cov, mw=noise_mean) #This could be the main position of problem, since the noise mean passed is a row vector here
         
-        if np.shape(inferred_X)[1] == 0:
-            print("active")
-            inferred_X = np.zeros((nx0,1))
         
         #print(inferred_X)
-        inferred_X = inferred_X.reshape(nx0, 1)
+        #inferred_X = inferred_X.reshape(nx0, 1)
         
         # print(np.shape(inferred_X))
         # Kalman Correction Step
@@ -512,7 +505,7 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
         #print(np.shape(inferred_X))
         inferred_X, inferred_cov, log_marginal = Kalman_correct(inferred_X, inferred_cov, observation, g, R,return_log_marginal = True)
         
-        log_marginals.append(log_marginal)
+        log_marginals.append(log_marginal) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
         Xs_inferred.append(inferred_X)
         uncertaintys_inferred.append(inferred_cov)
     weights = log_probs_to_normalised_probs(log_marginals)
@@ -523,20 +516,42 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
     
 
     # Ensure indices is an array of integers
-    indices = indices.astype(int)
-    # Use indices to resample particles
-    
-    selected_particles = [particles[i] for i in indices]
-    particles = selected_particles
+    #indices = indices.astype(int)
+    # Use indices to resample the propagated particles, Gaussian parameters for the conditional noise
+    particles_gaussian_parameterss = [particles_gaussian_parameterss[i] for i in indices]
+    #Re run the particle filter to resample the inference results! Otherwise meaningless, since the resampled Gaussain parameters would be forgotten directly in the next time step
+
     
 
 
 # Now the indexing operation
 
-    # Reset weights to 1/N for the resampled particles
+    # Reset weights to 1/N for the resampled particles. The particles resampled should carry the same weights, and the inference result could be found directly from the mean.
     weights = np.full(num_particles, 1.0 / num_particles)
+    for i,particles_gaussian_parameters in enumerate(particles_gaussian_parameterss): #Iterate over each particle to run a marginal Kalman filter for each one of them
+        #print(particles_gaussian_parameterss)
+        noise_mean, noise_cov = particles_gaussian_parameters
+        
+        noise_mean = np.array(noise_mean).reshape(len(noise_mean), 1) #In the muw = 0 case, this would be 0 throughout
+        inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, matrix_exp, noise_cov, mw=noise_mean) #This could be the main position of problem, since the noise mean passed is a row vector here
+        
+        
+        #print(inferred_X)
+        #inferred_X = inferred_X.reshape(nx0, 1)
+        
+        # print(np.shape(inferred_X))
+        # Kalman Correction Step
+        
+        #print(np.shape(inferred_X))
+        inferred_X, inferred_cov, log_marginal = Kalman_correct(inferred_X, inferred_cov, observation, g, R,return_log_marginal = True)
+        
+        log_marginals.append(log_marginal) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
+        Xs_inferred.append(inferred_X)
+        uncertaintys_inferred.append(inferred_cov)
+    weights = log_probs_to_normalised_probs(log_marginals)
 
-    return np.array(Xs_inferred),np.array(uncertaintys_inferred), particles, weights
+
+    return np.array(Xs_inferred),np.array(uncertaintys_inferred), particles_gaussian_parameterss, weights
 
 
 

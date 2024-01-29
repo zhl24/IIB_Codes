@@ -29,7 +29,7 @@ class Levy_Point_Process:
             # Append the result to the results list
             results.append(sum_over_time)
 
-        return results
+        return np.array(results)
     
 
 #Generator for TS process. Can be defined from alpha, beta and C 3 parameters. T is the simulation length (better put in generate samples?) Note that the evaluatioins points start from 0 wrt T interval.

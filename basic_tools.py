@@ -38,3 +38,16 @@ def log_probs_to_normalised_probs(log_likelihoods):
     
     probabilities = probabilities/np.sum(probabilities)
     return np.squeeze(probabilities)
+
+
+def weighted_sum(particles, weights):
+    
+
+    # Initialize the sum as a zero array of the same shape as the first particle
+    weighted_sum = np.zeros_like(particles[0])
+
+    # Iterate over each particle and its weight
+    for particle, weight in zip(particles, weights):
+        weighted_sum += np.array(particle) * weight
+
+    return weighted_sum
