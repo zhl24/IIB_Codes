@@ -70,9 +70,6 @@ def Kalman_transit(X, P, f, Q, mw=0, B=0, u=0, return_marginal=False):
     # Perform matrix multiplication
     X_new = f @ X
 
-    # Check if mw is empty or not properly shaped and adjust it
-    if mw.size == 0 or mw.shape != (2, 1):
-        mw = np.zeros((2, 1))  # Replace with zero vector of appropriate shape
 
     # Add mw to X_new
     X_new += mw
@@ -93,11 +90,6 @@ def Kalman_transit(X, P, f, Q, mw=0, B=0, u=0, return_marginal=False):
 #We again need the current states as the first two inputs, but now we need an obervation. g is the emission matrix, mv and R are 
 #the observation mean and noises which determine most of the Kalman filtering difficulties
 def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False):
-    assert X.ndim == 2 and X.shape[1] == 1, "X must be a column vector"
-    assert P.ndim == 2 and P.shape[0] == P.shape[1], "P must be a square matrix"
-    assert Y.ndim == 2 and Y.shape[1] == 1, "Y must be a column vector"
-    assert g.ndim == 2 and g.shape[0] == Y.shape[0], "g must have compatible dimensions with Y"
-    assert R.ndim == 2 and R.shape[0] == R.shape[1] and R.shape[0] == Y.shape[0], "R must be a square matrix compatible with Y"
     Ino = Y - g @ X - mv  # Innovation term
     
     S = g @ P @ g.T + R  # Innovation covariance
@@ -353,10 +345,11 @@ def compute_inferred_gaussian_parameters(particles_gaussian_parameters, weights)
 #Setting the mpf boolean to true wuld return the particles defined by the Gamma process instead of Normal Gamma process
 def transition_function_general(particles,dt,matrix_exp,SDE_model,mpf = False): #dt is the length of forwards simulation. t is the evaluation point
     new_particles = []
-    #We assume first that we know the exact generator for the process
+    #We assume first that we know the exact generator for the process. Parameters extracted from the incremental model passed
     particles_gaussian_parameters = []
     A = SDE_model.A
     h = SDE_model.h
+    x_dim = np.shape(h)[0]
     #Simulation over dt interval to obtain the jumps and jump times
     evaluation_points = [dt] #Note that this would be the time axis we work on.
     normal_gamma_generator = SDE_model.NVM  #Note that tyhe system has to be defined in dt time scale. i.e. we need the incremental model
@@ -367,10 +360,14 @@ def transition_function_general(particles,dt,matrix_exp,SDE_model,mpf = False): 
     sigmaw = normal_gamma_generator.sigmaw
     if not mpf:
         for particle in particles:
-            ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True)
+            ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True) #Note that these are all lists!!!! Need to convert them into arrays for any computation.
             #The jumpss and time already before dt
-            
+            ng_paths = np.array(ng_paths)
+            ng_jumps = np.array(ng_jumps)
+            jump_times = np.array(jump_times)
+            g_jumps = np.array(g_jumps)
 
+            print(g_jumps)
             #Then we solve for the summation
             system_jumps = []
             mean = 0
@@ -406,11 +403,18 @@ def transition_function_general(particles,dt,matrix_exp,SDE_model,mpf = False): 
             particles_gaussian_parameters.append([mean,cov])
     
         return np.squeeze(np.array(new_particles))
+    
     else: #The particles would be the Gaussian parameters now
         for particle in particles:
-            ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True)
+            ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True)# These are all lists!!!!
+
+            ng_paths = np.array(ng_paths)
+            ng_jumps = np.array(ng_jumps)
+            jump_times = np.array(jump_times)
+            g_jumps = np.array(g_jumps)
+
             #The jumpss and time already before dt
-            
+            print(g_jumps)
 
             #Then we solve for the summation
             
@@ -421,16 +425,20 @@ def transition_function_general(particles,dt,matrix_exp,SDE_model,mpf = False): 
                     special_vector = expm(-A * jump_time) @ h
                     mean += muw * g_jump * special_vector
                     cov+= sigmaw**2 * g_jump * special_vector @ special_vector.T
+                if muw == 0: #For dimension consistency, otherwise the mean is always a scalar
+                    mean = np.zeros((x_dim,1))
+
             elif len(jump_times) == 1:
                 special_vector = expm(-A * jump_times) @ h
                 mean = muw * g_jumps * special_vector
                 cov = sigmaw**2 * g_jumps * special_vector @ special_vector.T
-                
+                if muw == 0: #For dimension consistency, otherwise the mean is always a scalar
+                    mean = np.zeros((x_dim,1))
             else:
         # Initialize sum_over_time as a zero array of the same shape as a particle
                 
-                mean = np.zeros(2) #No jump so not applicable
-                cov = np.zeros((2,2))
+                mean = np.zeros((x_dim,1)) #No jump so not applicable
+                cov = np.zeros((x_dim,x_dim))
             #print(np.shape(sum_over_time))
             #print(np.shape( matrix_exp@particle))
             particles_gaussian_parameters.append([mean,cov])
@@ -465,29 +473,31 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
     nx0 = np.shape(observation)[0] #Same dimensions here
     num_particles = len(particles)
     g = np.identity(nx0) #Direct observation throughout
-    R = g * sigma**2 #Samen observation noise throughout
+    R = g * sigma**2 #Same observation noise throughout
     Xs_inferred = []
     uncertaintys_inferred = []
-    # Transition step: move each particle according to the transition model
+    # Transition step: move each particle according to the transition model. The new particles returned are Gaussian parameters, each one containing a pair of Gaussian mean and variance
     particles_gaussian_parameterss = transition_function(particles, dt, matrix_exp, incremental_SDE, True)  # The true boolean to turn on the mpf model of the transition function. The particles are hence just the Gaussian parameters.
     
     log_marginals = []
    
-    for i,particles_gaussian_parameters in enumerate(particles_gaussian_parameterss):
+    for i,particles_gaussian_parameters in enumerate(particles_gaussian_parameterss): #Iterate over each particle to run a marginal Kalman filter for each one of them
         
         previous_X = np.array(previous_Xs[i])
-        print("X",np.shape(previous_X))
+        #print("X",np.shape(previous_X))
         previous_X_uncertainty = previous_X_uncertaintys[i]
         #print(particles_gaussian_parameterss)
         noise_mean, noise_cov = particles_gaussian_parameters
-        observation = np.array(observation).reshape(nx0, 1)
+        observation = np.array(observation).reshape(nx0, 1) #Note that this is a must, since the observation array is by default in the row vector form.加了brackets[]方法会被视作是新的一行，直接用逗号间隔元素会被认作是row vector
         #previous_X = np.array(previous_X).reshape(nx0, 1)
         # Kalman Prediction Step
         #print(np.shape(previous_X))
         #print(previous_X)
         #print(nx0)
-        
-        inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, matrix_exp, noise_cov, mw=noise_mean)
+        print(noise_mean)
+        print(np.shape(noise_mean))
+        noise_mean = np.array(noise_mean).reshape(len(noise_mean), 1)
+        inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, matrix_exp, noise_cov, mw=noise_mean) #This could be the main position of problem, since the noise mean passed is a row vector here
         
         if np.shape(inferred_X)[1] == 0:
             print("active")
