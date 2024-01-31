@@ -67,14 +67,19 @@ def Kalman_transit(X, P, f, Q, mw=0, B=0, u=0, return_marginal=False):
     # Perform matrix multiplication
     X_new = f @ X
     
-    if mw.all() != 0:
+    try:
+        if mw == 0:
+            pass
+        else:
+            X_new += mw
+    except:
         X_new += mw
 
     # Handle control input B and u
     if B != 0:
         # Ensure B @ u is a column vector
         Bu = B @ u
-        X_new += Bu.reshape(-1, 1)
+        X_new += Bu
 
     P_new = f @ P @ f.T + Q
 
@@ -92,7 +97,7 @@ def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False): #The log_mar
     K = P @ g.T @ np.linalg.inv(S)  # Kalman gain
     n = np.shape(P)[0]
     I = np.identity(n)
-
+    
     if return_log_marginal:
         log_cov_det = np.log(np.linalg.det(S))  # Use S for log marginal likelihood
         cov_inv = np.linalg.inv(S)
@@ -101,6 +106,9 @@ def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False): #The log_mar
         log_marginal_likelihood = -0.5 * (k * np.log(2 * np.pi) + log_cov_det + np.dot((Ino).T, np.dot(cov_inv, (Ino))))
         return X + K @ Ino, (I - K @ g) @ P, log_marginal_likelihood
     else:
+        update = K @ Ino
+        print(np.shape(update))
+        print(update)
         return X + K @ Ino, (I - K @ g) @ P
 
 
@@ -464,12 +472,11 @@ def bootstrap_particle_filtering_general(observation, particles, weights, transi
 
 
 #A single step in marginal particle filtering
-def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertaintys, particles, transition_function, matrix_exp, dt, sigma, incremental_SDE):
+def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertaintys, particles, transition_function, matrix_exp, dt,incremental_SDE,g,R): #g is the observation matrix, R is the noise covariance matrix.
     # Previous X would be the hidden states inferred from the last step, and particles would be the Gaussian parameters. g and R are the observation matrix and observation noise covariance matrix.
-    nx0 = np.shape(observation)[0] #Same dimensions here
+    nx0 = np.shape(previous_Xs[0])[0] #Same dimensions here
     num_particles = len(particles)
-    g = np.identity(nx0) #Direct observation throughout
-    R = g * sigma**2 #Same observation noise throughout
+    
     Xs_inferred = []
     uncertaintys_inferred = []
     # Transition step: move each particle according to the transition model. The new particles returned are Gaussian parameters, each one containing a pair of Gaussian mean and variance
@@ -484,7 +491,10 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
         previous_X_uncertainty = previous_X_uncertaintys[i]
         #print(particles_gaussian_parameterss)
         noise_mean, noise_cov = particles_gaussian_parameters
-        observation = np.array(observation).reshape(nx0, 1) #Note that this is a must, since the observation array is by default in the row vector form.加了brackets[]方法会被视作是新的一行，直接用逗号间隔元素会被认作是row vector
+        try:
+            observation = np.array(observation).reshape(len(observation), 1) #Note that this is a must, since the observation array is by default in the row vector form.加了brackets[]方法会被视作是新的一行，直接用逗号间隔元素会被认作是row vector
+        except: #Single float case, convert the float into a single element array
+            observation = np.array([observation])
         #previous_X = np.array(previous_X).reshape(nx0, 1)
         # Kalman Prediction Step
         #print(np.shape(previous_X))
