@@ -659,10 +659,10 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
             #print(inferred_X)
             #inferred_X = inferred_X.reshape(nx0, 1)
             
-            print("inferred X",np.shape(inferred_X))
-            print("inferred cov",np.shape(inferred_cov))
-            print("g",np.shape(g))
-            print("R",np.shape(R))
+            #print("inferred X",np.shape(inferred_X))
+            #print("inferred cov",np.shape(inferred_cov))
+            #print("g",np.shape(g))
+            #print("R",np.shape(R))
             inferred_X, inferred_cov, log_marginal = Kalman_correct(inferred_X, inferred_cov, observation, g, R,return_log_marginal = True)
             
             log_marginals.append(log_marginal) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
