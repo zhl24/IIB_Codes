@@ -4,7 +4,7 @@ from jump_process_generators import *
 import matplotlib.pyplot as plt
 from scipy.special import logsumexp
 from basic_tools import *
-
+from scipy.special import gammaln #log gamma function
 
 def Kalman_Predict_1D(x_mean,x_variance,x_transition,x_noise_variance,x_noise_mean = 0): #Hidden state x predict step. 
 #Note that the noise is generally not zero mean in our case.
@@ -90,21 +90,28 @@ def Kalman_transit(X, P, f, Q, mw=0, B=0, u=0, return_marginal=False):
     
 #We again need the current states as the first two inputs, but now we need an obervation. g is the emission matrix, mv and R are 
 #the observation mean and noises which determine most of the Kalman filtering difficulties
-def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False): #The log_marginal returned would be used as the particle weight in marginalised particle filtering scheme.
-    Ino = Y - g @ X - mv  # Innovation term
+def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False,sigmaw_estimation = False): #The log_marginal returned would be used as the particle weight in marginalised particle filtering scheme.
+    Ino = Y - g @ X - mv  # Innovation term, just the predicton error
     
     S = g @ P @ g.T + R  # Innovation covariance
     K = P @ g.T @ np.linalg.inv(S)  # Kalman gain
     n = np.shape(P)[0]
     I = np.identity(n)
+    if sigmaw_estimation:
+        log_cov_det = np.log(np.linalg.det(S))  # Use S for log marginal likelihood
+        cov_inv = np.linalg.inv(S)
+        k = Y.shape[0]
+        
+        return X + K @ Ino, (I - K @ g) @ P, log_cov_det, np.dot((Ino).T, np.dot(cov_inv, (Ino)))
     
-    if return_log_marginal:
+    elif return_log_marginal:
         log_cov_det = np.log(np.linalg.det(S))  # Use S for log marginal likelihood
         cov_inv = np.linalg.inv(S)
         k = Y.shape[0]
         
         log_marginal_likelihood = -0.5 * (k * np.log(2 * np.pi) + log_cov_det + np.dot((Ino).T, np.dot(cov_inv, (Ino))))
         return X + K @ Ino, (I - K @ g) @ P, log_marginal_likelihood
+    
     else:
         update = K @ Ino
         print(np.shape(update))
@@ -362,7 +369,7 @@ def transition_function_general(particles,dt,matrix_exp,SDE_model,mpf = False,ex
     beta = normal_gamma_generator.beta
     muw = normal_gamma_generator.muw
     sigmaw = normal_gamma_generator.sigmaw
-    if not mpf:
+    if not mpf: #Standard particle filter
         for particle in particles:
             ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True) 
             #Make sure that these are arrays before putting them in vector computation
@@ -724,3 +731,135 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
 
 
 
+
+
+#The case with all NVM parameters estimated
+def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles, transition_function, matrix_exp, dt,incremental_SDE,g,R,alphaws,betaws,accumulated_Es,accumulated_Fs,N): #N is the time index
+
+
+    num_particles = len(particles)
+    
+    Xs_inferred = []
+    uncertaintys_inferred = []
+    # Transition step: move each particle according to the transition model. The new particles returned are Gaussian parameters, each one containing a pair of Gaussian mean and variance
+    particles_sum_and_vars = transition_function(particles, dt, matrix_exp, incremental_SDE, True, True)  # The 2 true booleans turn on mpf and exytended state together, thus the particles returned contain the summation term and the covariane matrix for the conditional Gaussian distribution.
+    
+    log_marginals = []
+
+    for i,particles_sum_and_var in enumerate(particles_sum_and_vars): #Iterate over each particle to run a marginal Kalman filter for each one of them
+        
+        previous_X = np.array(previous_Xs[i])
+        #print("X",np.shape(previous_X))
+        previous_X_uncertainty = previous_X_uncertaintys[i]
+        #print(particles_gaussian_parameterss)
+        particle_sum,noise_cov = particles_sum_and_var
+        try:
+            observation = np.array(observation).reshape(len(observation), 1) #Note that this is a must, since the observation array is by default in the row vector form.加了brackets[]方法会被视作是新的一行，直接用逗号间隔元素会被认作是row vector
+        except: #Single float case, convert the float into a single element array
+            observation = np.array([observation])
+        #previous_X = np.array(previous_X).reshape(nx0, 1)
+        # Kalman Prediction Step
+        #print(np.shape(previous_X))
+        #print(previous_X)
+        #print(nx0)
+        #print(noise_mean)
+        #print(np.shape(noise_mean))
+        
+###### Additional processing of the paticles to fit them in the HMM
+        #产生transition matrix for the augmented state
+        n = matrix_exp.shape[0]
+        # 创建一个 (n+1) x (n+1) 的矩阵
+        combined_matrix = np.zeros((n + 1, n + 1))
+        # 将 matrix_exp 和 particle_sum 放入新矩阵
+        combined_matrix[:n, :n] = matrix_exp
+        combined_matrix[:n, n] = particle_sum.T
+        combined_matrix[n, n] = 1
+    
+        # 获取 noise_cov 的维度
+        n = noise_cov.shape[0]
+        # 创建一个新的 (n+1) x (n+1) 矩阵
+        augmented_cov_matrix = np.zeros((n + 1, n + 1))
+        # 将 noise_cov 放入新矩阵的左上角
+        augmented_cov_matrix[:n, :n] = noise_cov
+
+
+
+        
+        inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, combined_matrix, augmented_cov_matrix) #This could be the main position of problem, since the noise mean passed is a row vector here
+        
+        
+        #print(inferred_X)
+        #inferred_X = inferred_X.reshape(nx0, 1)
+        
+        #print("inferred X",np.shape(inferred_X))
+        #print("inferred cov",np.shape(inferred_cov))
+        #print("g",np.shape(g))
+        #print("R",np.shape(R))
+        inferred_X, inferred_cov, log_det_F,Ei = Kalman_correct(inferred_X, inferred_cov, observation, g, R,return_log_marginal = False, sigmaw_estimation=True)
+        #QAccumulated terms for each particle
+        
+        alphaw = alphaws[i]
+        betaw = betaws[i]
+        log_marginal = accumulated_Fs[i] + alphaw * np.log(betaw) - (alphaw+N/2)*np.log(betaw + accumulated_Es[i]/2) + gammaln(N/2 + alphaw) - gammaln(alphaw)
+        log_marginals.append( log_marginal.item()) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
+        Xs_inferred.append(inferred_X)
+        uncertaintys_inferred.append(inferred_cov)
+    #print(log_marginals)
+    weights = log_probs_to_normalised_probs(log_marginals)
+    
+    
+    # Resampling step: resample particles based on their weights
+    indices = np.random.choice(np.arange(num_particles), size=num_particles, p=weights)
+    
+
+    # Ensure indices is an array of integers
+    #indices = indices.astype(int)
+    # Use indices to resample the propagated particles, Gaussian parameters for the conditional noise
+    particles_sum_and_vars = [particles_sum_and_vars[i] for i in indices]
+    #Re run the particle filter to resample the inference results! Otherwise meaningless, since the resampled Gaussain parameters would be forgotten directly in the next time step
+    # Reset weights to 1/N for the resampled particles. The particles resampled should carry the same weights, and the inference result could be found directly from the mean.
+    weights = np.full(num_particles, 1.0 / num_particles)
+    for i,particles_sum_and_var in enumerate(particles_sum_and_vars): #Iterate over each particle to run a marginal Kalman filter for each one of them
+        n = matrix_exp.shape[0]
+        # 创建一个 (n+1) x (n+1) 的矩阵
+        particle_sum,noise_cov = particles_sum_and_var
+        combined_matrix = np.zeros((n + 1, n + 1))
+        # 将 matrix_exp 和 particle_sum 放入新矩阵
+        combined_matrix[:n, :n] = matrix_exp
+        combined_matrix[:n, n] = particle_sum.T
+        combined_matrix[n, n] = 1
+        # 获取 noise_cov 的维度
+        n = noise_cov.shape[0]
+        # 创建一个新的 (n+1) x (n+1) 矩阵
+        augmented_cov_matrix = np.zeros((n + 1, n + 1))
+        # 将 noise_cov 放入新矩阵的左上角
+        augmented_cov_matrix[:n, :n] = noise_cov
+
+
+
+
+        inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, combined_matrix, augmented_cov_matrix) #This could be the main position of problem, since the noise mean passed is a row vector here
+        
+        
+        #print(inferred_X)
+        #inferred_X = inferred_X.reshape(nx0, 1)
+        
+        # print(np.shape(inferred_X))
+        # Kalman Correction Step
+        
+        #print(np.shape(inferred_X))
+        inferred_X, inferred_cov, log_det_F,Ei = Kalman_correct(inferred_X, inferred_cov, observation, g, R,return_log_marginal = False, sigmaw_estimation=True)
+        #Only update after resampling
+        accumulated_Fs[i] = accumulated_Fs[i] - 0.5 * log_det_F 
+        accumulated_Es[i] = accumulated_Es[i]  + Ei
+
+        log_marginal = accumulated_Fs[i] + alphaw * np.log(betaw) - (alphaw+N/2)*np.log(betaw + accumulated_Es[i]/2) + gammaln(N/2 + alphaw) - gammaln(alphaw)
+        log_marginals.append( log_marginal.item()) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
+        Xs_inferred.append(inferred_X)
+        uncertaintys_inferred.append(inferred_cov)
+        alphaws[i] = alphaws[i] + N/2
+        betaws[i] = betaws[i] + accumulated_Es[i]/2
+    weights = log_probs_to_normalised_probs(log_marginals)
+    
+
+    return np.array(Xs_inferred),np.array(uncertaintys_inferred), particles_sum_and_vars, weights, alphaws, betaws, accumulated_Es, accumulated_Fs    #Update the particle states
