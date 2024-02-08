@@ -643,6 +643,7 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
             combined_matrix[:n, :n] = matrix_exp
             combined_matrix[:n, n] = particle_sum.T
             combined_matrix[n, n] = 1
+        
             # 获取 noise_cov 的维度
             n = noise_cov.shape[0]
             # 创建一个新的 (n+1) x (n+1) 矩阵
