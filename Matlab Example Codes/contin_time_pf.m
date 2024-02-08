@@ -134,7 +134,7 @@ end
 
 % Run particle filter:
 profile on
-for t=2:length(time_axis)
+for t=2:length(time_axis)  %Iterate over each time step
     t
     
     t_i=time_axis(t);
