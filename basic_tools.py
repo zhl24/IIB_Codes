@@ -51,3 +51,23 @@ def weighted_sum(particles, weights):
         weighted_sum += np.array(particle) * weight
 
     return weighted_sum
+
+
+def inverted_gamma_to_mean_variance(alpha, beta):
+    """
+    Convert Inverted Gamma distribution parameters to mean and variance.
+    
+    Parameters:
+    - alpha: shape parameter of the Inverted Gamma distribution (> 0).
+    - beta: scale parameter of the Inverted Gamma distribution (> 0).
+    
+    Returns:
+    - A tuple containing the mean and variance of the Inverted Gamma distribution.
+      Returns (None, None) if the mean or variance does not exist.
+    """
+    mean = max(0,beta / (alpha - 1))
+    
+    
+    variance = max(0,beta**2 / ((alpha - 1)**2 * (alpha - 2)))
+    
+    return mean, variance
