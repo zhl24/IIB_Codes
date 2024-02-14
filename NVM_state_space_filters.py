@@ -94,15 +94,26 @@ def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False,sigmaw_estimat
     Ino = Y - g @ X - mv  # Innovation term, just the predicton error
     
     S = g @ P @ g.T + R  # Innovation covariance
-    K = P @ g.T @ np.linalg.inv(S)  # Kalman gain
+    try:
+        K = P @ g.T @ np.linalg.inv(S)  # Kalman gain
+    except: #1D observation case
+        K = P @ g.T /S 
+
     n = np.shape(P)[0]
     I = np.identity(n)
     if sigmaw_estimation:
-        log_cov_det = np.log(np.linalg.det(S))  # Use S for log marginal likelihood
-        cov_inv = np.linalg.inv(S)
-        k = Y.shape[0]
-        
-        return X + K @ Ino, (I - K @ g) @ P, log_cov_det, np.dot((Ino).T, np.dot(cov_inv, (Ino)))
+        try:
+            log_cov_det = np.log(np.linalg.det(S))  # Use S for log marginal likelihood
+            cov_inv = np.linalg.inv(S)
+            k = Y.shape[0]
+            
+            return X + K @ Ino, (I - K @ g) @ P, log_cov_det, np.dot((Ino).T, np.dot(cov_inv, (Ino)))
+        except: #1D case
+            log_cov_det = np.log(np.abs(S))  # Use S for log marginal likelihood
+            cov_inv = 1/S
+            k = 1
+            
+            return X + K @ Ino, (I - K @ g) @ P, log_cov_det, np.dot((Ino).T, np.dot(cov_inv, (Ino)))
     
     elif return_log_marginal:
         log_cov_det = np.log(np.linalg.det(S))  # Use S for log marginal likelihood
@@ -730,7 +741,63 @@ def particle_filtering_mpf_general(observation, previous_Xs, previous_X_uncertai
         return np.array(Xs_inferred),np.array(uncertaintys_inferred), particles_sum_and_vars, weights
 
 
+#The final transition functiuon that would be used in the most comprehensive model
+#The return covariance is the marginal8ised covariance matrix
+def transition_function_ultimate_NVM_pf(particles,dt,matrix_exp,SDE_model): #dt is the length of forwards simulation. t is the evaluation point
 
+    new_particles = []
+    #We assume first that we know the exact generator for the process. Parameters extracted from the incremental model passed
+    particles_gaussian_parameters = []
+    particles_sum_and_var = []
+    A = SDE_model.A
+    h = SDE_model.h
+    x_dim = np.shape(h)[0]
+    #Simulation over dt interval to obtain the jumps and jump times
+    evaluation_points = [dt] #Note that this would be the time axis we work on.
+    normal_gamma_generator = SDE_model.NVM  #Note that tyhe system has to be defined in dt time scale. i.e. we need the incremental model
+    T = SDE_model.T #Note that this should be equal to dt
+    C = normal_gamma_generator.C
+    beta = normal_gamma_generator.beta
+    muw = normal_gamma_generator.muw
+    sigmaw = normal_gamma_generator.sigmaw
+
+    for particle in particles:
+        ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True)
+
+        ng_paths = np.array(ng_paths)
+        ng_jumps = np.array(ng_jumps)
+        jump_times = np.array(jump_times)
+        g_jumps = np.array(g_jumps)
+
+        #The jumpss and time already before dt
+        #print(g_jumps)
+
+        #Then we solve for the summation
+        
+        sum = 0
+        cov = 0
+        if len(jump_times)>1:
+            for ng_jump,jump_time,g_jump in zip(ng_jumps,jump_times,g_jumps):
+                special_vector = expm(-A * jump_time) @ h
+                sum +=  g_jump * special_vector
+                cov+=  g_jump * special_vector @ special_vector.T
+            if muw == 0: #For dimension consistency, otherwise the mean is always a scalar
+                mean = np.zeros((x_dim,1))
+
+        elif len(jump_times) == 1:
+            special_vector = expm(-A * jump_times) @ h
+            sum = g_jumps * special_vector
+            cov = g_jumps * special_vector @ special_vector.T
+        else:
+    # Initialize sum_over_time as a zero array of the same shape as a particle
+            
+            sum = np.zeros((x_dim,1)) #No jump so not applicable
+            cov = np.zeros((x_dim,x_dim))
+        #print(np.shape(sum_over_time))
+        #print(np.shape( matrix_exp@particle))
+        particles_sum_and_var.append([sum,cov])
+    return particles_sum_and_var
+    
 
 
 #The case with all NVM parameters estimated
@@ -742,7 +809,7 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
     Xs_inferred = []
     uncertaintys_inferred = []
     # Transition step: move each particle according to the transition model. The new particles returned are Gaussian parameters, each one containing a pair of Gaussian mean and variance
-    particles_sum_and_vars = transition_function(particles, dt, matrix_exp, incremental_SDE, True, True)  # The 2 true booleans turn on mpf and exytended state together, thus the particles returned contain the summation term and the covariane matrix for the conditional Gaussian distribution.
+    particles_sum_and_vars = transition_function(particles, dt, matrix_exp, incremental_SDE)  # The 2 true booleans turn on mpf and exytended state together, thus the particles returned contain the summation term and the covariane matrix for the conditional Gaussian distribution.
     
     log_marginals = []
 
@@ -752,7 +819,7 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         #print("X",np.shape(previous_X))
         previous_X_uncertainty = previous_X_uncertaintys[i]
         #print(particles_gaussian_parameterss)
-        particle_sum,noise_cov = particles_sum_and_var
+        particle_sum,noise_cov = particles_sum_and_var #Note that the noise covariance matrix is for the marginalised case
         try:
             observation = np.array(observation).reshape(len(observation), 1) #Note that this is a must, since the observation array is by default in the row vector form.加了brackets[]方法会被视作是新的一行，直接用逗号间隔元素会被认作是row vector
         except: #Single float case, convert the float into a single element array
@@ -779,7 +846,7 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         n = noise_cov.shape[0]
         # 创建一个新的 (n+1) x (n+1) 矩阵
         augmented_cov_matrix = np.zeros((n + 1, n + 1))
-        # 将 noise_cov 放入新矩阵的左上角
+        # 将 noise_cov 放入新矩阵的左上角,此处直接使用BSB^T matrix product，与文献中的等效
         augmented_cov_matrix[:n, :n] = noise_cov
 
 
