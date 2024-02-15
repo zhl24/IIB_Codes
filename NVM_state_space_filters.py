@@ -803,7 +803,10 @@ def transition_function_ultimate_NVM_pf(particles,dt,matrix_exp,SDE_model): #dt 
 #The case with all NVM parameters estimated
 def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles, transition_function, matrix_exp, dt,incremental_SDE,g,R,alphaws,betaws,accumulated_Es,accumulated_Fs,N): #N is the time index
 
-
+    try:
+        M = len(observation)
+    except:#Scalar case
+        M=1
     num_particles = len(particles)
     
     Xs_inferred = []
@@ -847,11 +850,11 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         # 创建一个新的 (n+1) x (n+1) 矩阵
         augmented_cov_matrix = np.zeros((n + 1, n + 1))
         # 将 noise_cov 放入新矩阵的左上角,此处直接使用BSB^T matrix product，与文献中的等效
-        augmented_cov_matrix[:n, :n] = noise_cov
+        augmented_cov_matrix[:n, :n] = noise_cov #this is the marginalised noise covariance matrix
 
 
 
-        
+        #The marginalise dKalman filter transition
         inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, combined_matrix, augmented_cov_matrix) #This could be the main position of problem, since the noise mean passed is a row vector here
         
         
@@ -867,7 +870,7 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         
         alphaw = alphaws[i]
         betaw = betaws[i]
-        log_marginal = accumulated_Fs[i] + alphaw * np.log(betaw) - (alphaw+N/2)*np.log(betaw + accumulated_Es[i]/2) + gammaln(N/2 + alphaw) - gammaln(alphaw)
+        log_marginal = -M*N/2*np.log(2*np.pi) - accumulated_Fs[i]-0.5*log_det_F + alphaw * np.log(betaw) - (alphaw+N/2)*np.log(betaw + accumulated_Es[i]/2+Ei/2) + gammaln(N/2 + alphaw) - gammaln(alphaw)
         log_marginals.append( log_marginal.item()) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
         Xs_inferred.append(inferred_X)
         uncertaintys_inferred.append(inferred_cov)
@@ -920,7 +923,7 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         accumulated_Fs[i] = accumulated_Fs[i] - 0.5 * log_det_F 
         accumulated_Es[i] = accumulated_Es[i]  + Ei
 
-        log_marginal = accumulated_Fs[i] + alphaw * np.log(betaw) - (alphaw+N/2)*np.log(betaw + accumulated_Es[i]/2) + gammaln(N/2 + alphaw) - gammaln(alphaw)
+        log_marginal =-M*N/2*np.log(2*np.pi)- accumulated_Fs[i] + alphaw * np.log(betaw) - (alphaw+N/2)*np.log(betaw + accumulated_Es[i]/2) + gammaln(N/2 + alphaw) - gammaln(alphaw)
         log_marginals.append( log_marginal.item()) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
         Xs_inferred.append(inferred_X)
         uncertaintys_inferred.append(inferred_cov)
