@@ -760,8 +760,9 @@ def transition_function_ultimate_NVM_pf(particles,dt,matrix_exp,SDE_model): #dt 
     beta = normal_gamma_generator.beta
     muw = normal_gamma_generator.muw
     sigmaw = normal_gamma_generator.sigmaw
-
+    
     for particle in particles:
+        
         ng_paths,ng_jumps,jump_times,g_jumps = normal_gamma_generator.generate_samples(evaluation_points,all_data = True)
 
         ng_paths = np.array(ng_paths)
@@ -796,12 +797,13 @@ def transition_function_ultimate_NVM_pf(particles,dt,matrix_exp,SDE_model): #dt 
         #print(np.shape(sum_over_time))
         #print(np.shape( matrix_exp@particle))
         particles_sum_and_var.append([sum,cov])
+    
     return particles_sum_and_var
     
 
 
 #The case with all NVM parameters estimated
-def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles, transition_function, matrix_exp, dt,incremental_SDE,g,R,alphaws,betaws,accumulated_Es,accumulated_Fs,N): #N is the time index
+def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles, transition_function, matrix_exp, dt,incremental_SDE,g,R,alphaws,betaws,accumulated_Es,accumulated_Fs,N, return_log_marginals = False): #N is the time index
 
     try:
         M = len(observation)
@@ -871,12 +873,14 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         alphaw = alphaws[i]
         betaw = betaws[i]
         log_marginal = -M*N/2*np.log(2*np.pi) - accumulated_Fs[i]-0.5*log_det_F + alphaw * np.log(betaw) - (alphaw+N/2)*np.log(betaw + accumulated_Es[i]/2+Ei/2) + gammaln(N/2 + alphaw) - gammaln(alphaw)
+        #print(np.shape(log_marginal))
         log_marginals.append( log_marginal.item()) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
         Xs_inferred.append(inferred_X)
         uncertaintys_inferred.append(inferred_cov)
     #print(log_marginals)
+    #print(np.shape(log_marginals))
     weights = log_probs_to_normalised_probs(log_marginals)
-    
+    #print(np.shape(weights))
     
     # Resampling step: resample particles based on their weights
     indices = np.random.choice(np.arange(num_particles), size=num_particles, p=weights)
@@ -888,7 +892,8 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
     particles_sum_and_vars = [particles_sum_and_vars[i] for i in indices]
     #Re run the particle filter to resample the inference results! Otherwise meaningless, since the resampled Gaussain parameters would be forgotten directly in the next time step
     # Reset weights to 1/N for the resampled particles. The particles resampled should carry the same weights, and the inference result could be found directly from the mean.
-    weights = np.full(num_particles, 1.0 / num_particles)
+    #weights = np.full(num_particles, 1.0 / num_particles)
+    log_marginals = []
     for i,particles_sum_and_var in enumerate(particles_sum_and_vars): #Iterate over each particle to run a marginal Kalman filter for each one of them
         n = matrix_exp.shape[0]
         # 创建一个 (n+1) x (n+1) 的矩阵
@@ -924,12 +929,17 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         accumulated_Es[i] = accumulated_Es[i]  + Ei
 
         log_marginal =-M*N/2*np.log(2*np.pi)- accumulated_Fs[i] + alphaw * np.log(betaw) - (alphaw+N/2)*np.log(betaw + accumulated_Es[i]/2) + gammaln(N/2 + alphaw) - gammaln(alphaw)
-        log_marginals.append( log_marginal.item()) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
+        #print(log_marginal)
+        log_marginals.append( log_marginal) #This is the log weight for each particle, normalize them in the log domain before tranforming them in to the usual probability domian for numerical stability
         Xs_inferred.append(inferred_X)
         uncertaintys_inferred.append(inferred_cov)
         alphaws[i] = alphaws[i] + N/2
         betaws[i] = betaws[i] + accumulated_Es[i]/2
+    #print(i)
+    #print(np.shape(log_marginals))
     weights = log_probs_to_normalised_probs(log_marginals)
-    
-
-    return np.array(Xs_inferred),np.array(uncertaintys_inferred), particles_sum_and_vars, weights, alphaws, betaws, accumulated_Es, accumulated_Fs    #Update the particle states
+    #print(np.shape(weights))
+    if return_log_marginals:
+        return np.array(Xs_inferred),np.array(uncertaintys_inferred), particles_sum_and_vars, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, log_marginals    #Update the particle states
+    else:
+        return np.array(Xs_inferred),np.array(uncertaintys_inferred), particles_sum_and_vars, weights, alphaws, betaws, accumulated_Es, accumulated_Fs    #Update the particle states
