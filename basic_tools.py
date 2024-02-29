@@ -104,7 +104,8 @@ def autocorrelation(samples):
 
 def plot_autocorrelation(samples, max_lag=20):
     sample_length = np.size(samples)
-    if sample_length < 40:
+    if sample_length < max_lag:
+        #print("Inadequant Sample Length")
         max_lag = sample_length-1
     acf = autocorrelation(samples)[:max_lag+1]
     time_lags = np.arange(max_lag+1)
