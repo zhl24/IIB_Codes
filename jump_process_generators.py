@@ -3,9 +3,11 @@ from scipy.linalg import expm #This is the automatic matrix expnent solver
 import math
 from scipy.special import logsumexp
 from basic_tools import *
+from numba import jit
 #This is the parent class ofr all jump processes, with functions of integrating jumps to create process paths.
 class Levy_Point_Process:
     #This is the parent class to define a public method for the Gamma and tempered stable processes to give the output series
+
     def integrate(self,evaluation_points,x_series,t_series): #Scalar integrate function
         evaluation_points = np.array(evaluation_points)
         x_series = np.array(x_series)
@@ -41,6 +43,7 @@ class tempered_stable_point_process(Levy_Point_Process):
         self.beta = beta
         self.C = C
         self.T = T
+    
     def generate_samples(self,evaluation_points):
         #The first step generates Poisson epochs in the time interval T
         poisson_epochs = []
@@ -112,6 +115,7 @@ class normal_gamma_process(Levy_Point_Process):
         self.T = T
         self.muw = muw
         self.sigmaw = sigmaw
+    
     def generate_gamma_samples(self,evaluation_points,raw_data = False): #This fucntion returns the gamma process samples by putting in the resolution N (number of points to be evaluated in T)
           #The first step generates Poisson epochs in the time interval T
         repeatitions = math.ceil(self.T) #Since only the generation in unit time interval is correct, we simply repeat the generation several times to have the correct jump sizes and times
@@ -149,7 +153,7 @@ class normal_gamma_process(Levy_Point_Process):
         
         else:
             return self.integrate(evaluation_points,x_list,jump_times)
-    
+
     def generate_samples(self,evaluation_points,raw_data = False,all_data = False):
         if raw_data:
             gamma_paths,subordinator_jumps,jump_times = self.generate_gamma_samples(evaluation_points,True)
@@ -174,6 +178,7 @@ class normal_gamma_process(Levy_Point_Process):
             NVM_jumps = np.ones(len(subordinator_jumps))*self.muw*subordinator_jumps+self.sigmaw*np.sqrt(subordinator_jumps)*np.random.randn(len(subordinator_jumps))
             
             return self.integrate(evaluation_points,NVM_jumps,jump_times)
+
     def generate_normal_gamma_samples_from_joint(self,evaluation_points):
         N = len(evaluation_points)
         gamma_samples = np.array(self.generate_gamma_samples(evaluation_points))#These would be the Gamma samples along the process

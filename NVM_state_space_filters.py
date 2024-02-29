@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.special import logsumexp
 from basic_tools import *
 from scipy.special import gammaln #log gamma function
-
+from numba import jit,objmode
 
 
 
@@ -40,6 +40,7 @@ def Kalman_transit(X, P, f, Q, mw=0, B=0, u=0, return_marginal=False):
     
 #We again need the current states as the first two inputs, but now we need an obervation. g is the emission matrix, mv and R are 
 #the observation mean and noises which determine most of the Kalman filtering difficulties
+
 def Kalman_correct(X, P, Y, g, R, mv=0, return_log_marginal=False,sigmaw_estimation = False): #The log_marginal returned would be used as the particle weight in marginalised particle filtering scheme.
     Ino = Y - g @ X - mv  # Innovation term, just the predicton error
     
@@ -152,6 +153,7 @@ def transition_function_ultimate_NVM_pf(particles,dt,matrix_exp,SDE_model): #dt 
 
 
     #The case with all NVM parameters estimated
+
 def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles, transition_function, matrix_exp, dt,incremental_SDE,g,R,alphaws,betaws,accumulated_Es,accumulated_Fs,N, return_log_marginals = False): #N is the time index
 
     try:
