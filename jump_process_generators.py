@@ -10,6 +10,8 @@ class Levy_Point_Process:
         evaluation_points = np.array(evaluation_points)
         x_series = np.array(x_series)
         t_series = np.array(t_series)
+        #print("x",np.shape(x_series),x_series)
+        #print("t",np.shape(t_series),t_series)
         return [x_series[t_series < point].sum() for point in evaluation_points]
     def general_integrate(self,evaluation_points,x_series,t_series): #Integration for multi-dimensional time series
         evaluation_points = np.array(evaluation_points)
