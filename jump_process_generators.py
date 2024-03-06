@@ -138,7 +138,7 @@ class normal_gamma_process(Levy_Point_Process):
             for i in poisson_epochs:
                 x = 1/(self.beta*(np.exp(i/self.C)-1))
                 p = (1+self.beta*x)*np.exp(-self.beta*x)
-                if np.random.binomial(n=1, p=p, size=1): #set n = 1 to have a Bernoulli generator, and p is the probability of getting a 1.
+                if np.random.rand() <= p: #set n = 1 to have a Bernoulli generator, and p is the probability of getting a 1.
                     x_list.append(x)
                     new_x_list.append(x)
 
