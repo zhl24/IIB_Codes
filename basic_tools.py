@@ -102,7 +102,7 @@ def autocorrelation(samples):
     acf = np.correlate(samples - mean, samples - mean, mode='full')[n-1:] / (var*n)
     return acf
 
-def plot_autocorrelation(samples, max_lag=20):
+def plot_autocorrelation(samples,parameter_name = "Theta", max_lag=20):
     sample_length = np.size(samples)
     if sample_length < max_lag:
         #print("Inadequant Sample Length")
@@ -113,7 +113,7 @@ def plot_autocorrelation(samples, max_lag=20):
     plt.stem(time_lags, acf, linefmt='-', markerfmt='o', basefmt=" ")
     plt.xlabel('Lag')
     plt.ylabel('Autocorrelation')
-    plt.title('Autocorrelation Function')
+    plt.title(f'Autocorrelation Function for {parameter_name}')
     plt.grid(True)
     plt.show()
 
