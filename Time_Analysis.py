@@ -14,13 +14,20 @@ import seaborn as sns
 
 
 def main():
-        
+
+
     #beta_pcn = 1 #The step parameter for the pre-conditioned crank nicolson algorithm
-    n_iter = 50 #Number of iterations
+    n_iter = 10 #Number of iterations
     theta0 = -2 #Initial guess of theta
-    num_particles = 100
-    l = 1 #Step size
-    K = l**2 # Squared length of the Gaussian "kernel". Since in this case our space is 1D, K is just the Gaussian variance.
+    beta0 = 2 #Initial Guess of beta
+    C0 = 5  #Initial Guess of C  
+    num_particles = 10
+
+    #The 3 step sizes for the 3 parameters
+    l_theta = 1 
+    l_beta = 2
+    l_C = 2
+
 
 
 
@@ -38,12 +45,12 @@ def main():
 
     #Simulation Parameters
 
-    beta = 5
-    C = 10
+    true_beta = 5
+    true_C = 10
     T = 10
 
 
-    N = 100  # Resolution
+    N = 10 * T  # Resolution, 10 points per unit time now
 
     #Define the Langevin dynamics
     A = np.zeros((2, 2))
@@ -53,7 +60,7 @@ def main():
 
     #Simulation
     evaluation_points = np.linspace(0, T, N) #Note that this would be the time axis we work on.
-    normal_gamma_generator = normal_gamma_process(beta, C, T, true_muw, true_sigmaw)
+    normal_gamma_generator = normal_gamma_process(true_beta, true_C, T, true_muw, true_sigmaw)
     langevin = SDE(A,h,T,normal_gamma_generator)
     #Noisy observation generation
     SDE_samples,system_jumps,NVM_jumps,subordinator_jumps,jump_times = langevin.generate_samples(evaluation_points,all_data=True)
@@ -64,7 +71,11 @@ def main():
     #Create the partial observation, observing only the integral state x here.
     Noisy_samples = SDE_samples[:,0] + np.random.randn(np.shape(SDE_samples)[0])*sigma_n #The noisy observations simulated. Already in the column vector form
 
+
+    #The collection of the parameter samples
     theta_samples = [theta0]
+    C_samples = [C0]
+    beta_samples = [beta0]
     first_time = True
 
     for iter in tqdm(range(n_iter), desc="Processing"):
@@ -137,20 +148,20 @@ def main():
 
 
             sigmaw_values = []
-            sigmaw_uncertainties = []
+            
+
+            
 
             for i in range(len(evaluation_points)): #i is the time index we want for N
                 #sigmaw here needs to be updated in every step
-                alphaw = weighted_sum(alphaws,weights)
-                betaw = weighted_sum(betaws,weights)
-                sigmaw2,sigmaw_uncertainty = inverted_gamma_to_mean_variance(alphaw, betaw) #Note that this is sigmaw^2 but not sigmaw
+                sigmaw2,sigmaw2_uncertainty = inverted_gamma_to_mean_variance(alphaws, betaws,weights) #Note that this is sigmaw^2 but not sigmaw
                 sigmaw = np.sqrt(sigmaw2)
 
                 sigmaw_values.append(sigmaw)
-                sigmaw_uncertainties.append(sigmaw_uncertainty)
+                
 
 
-                incremental_normal_gamma_generator = normal_gamma_process(beta, C, dt, 0, sigmaw) #We are just using the built in gamma generator inside， putting in some random muw or sigmaw has no effect
+                incremental_normal_gamma_generator = normal_gamma_process(beta_samples[-1], C_samples[-1], dt, 0, sigmaw) #We are just using the built in gamma generator inside， putting in some random muw or sigmaw has no effect
                 incremental_SDE = SDE(A,h,dt,incremental_normal_gamma_generator)
                 #print(i)
                 t = evaluation_points[i]
@@ -168,11 +179,21 @@ def main():
             original_state_log_probability = logsumexp(log_marginals) - np.log(num_particles)
             first_time = False
 
+
+
+
+
         #####################################################################################################################################################################################################################################################
-        #From here, we propose a theta sample
+        #From here, we propose a the parameter samples, indepndent parameter assumed
 
-        theta_proposed = theta_samples[-1] + np.random.randn() * l
-
+        theta_proposed = theta_samples[-1] + np.random.randn() * l_theta
+        beta_proposed = beta_samples[-1] + np.random.randn() * l_beta
+        C_proposed = C_samples[-1] + np.random.randn() * l_C
+        #Note that the Gamma process parameters have to be positive
+        if beta_proposed <=0:
+            beta_proposed = 0.000001
+        if C_proposed <= 0:
+            C_proposeed = 0.000001
         #print("Progress:",progress/searching_resolution, "%")
         #progress +=1
         #Prior inverted gamma parameters for sigmaw
@@ -238,20 +259,18 @@ def main():
 
 
         sigmaw_values = []
-        sigmaw_uncertainties = []
+        
 
         for i in range(len(evaluation_points)): #i is the time index we want for N
             #sigmaw here needs to be updated in every step
-            alphaw = weighted_sum(alphaws,weights)
-            betaw = weighted_sum(betaws,weights)
-            sigmaw2,sigmaw_uncertainty = inverted_gamma_to_mean_variance(alphaw, betaw) #Note that this is sigmaw^2 but not sigmaw
+            sigmaw2,sigmaw2_uncertainty = inverted_gamma_to_mean_variance(alphaws, betaws,weights)
             sigmaw = np.sqrt(sigmaw2)
 
             sigmaw_values.append(sigmaw)
-            sigmaw_uncertainties.append(sigmaw_uncertainty)
+        
 
 
-            incremental_normal_gamma_generator = normal_gamma_process(beta, C, dt, 0, sigmaw) #We are just using the built in gamma generator inside， putting in some random muw or sigmaw has no effect
+            incremental_normal_gamma_generator = normal_gamma_process(beta_proposed, C_proposed, dt, 0, sigmaw) #We are just using the built in gamma generator inside， putting in some random muw or sigmaw has no effect
             incremental_SDE = SDE(A,h,dt,incremental_normal_gamma_generator)
             #print(i)
             t = evaluation_points[i]
@@ -274,21 +293,23 @@ def main():
         log_acceptance_ratio = proposed_state_log_probability - original_state_log_probability
         if np.log(np.random.rand())< log_acceptance_ratio: #Accepted case
             theta_samples.append(theta_proposed)
+            beta_samples.append(beta_proposed)
+            C_samples.append(C_proposed)
             original_state_log_probability = proposed_state_log_probability
         else: #Rejected case
             theta_samples.append(theta_samples[-1])
-
+            beta_samples.append(beta_samples[-1])
+            C_samples.append(C_samples[-1])
 
 
     theta_samples = np.array(theta_samples)  # 假设已经去除了燃烧期的样本
+    beta_samples = np.array(beta_samples)
+    C_samples = np.array(C_samples)
 
-    # 后验分布摘要
+    # 后验分布摘要 for theta
     mean_theta = np.mean(theta_samples)
     median_theta = np.median(theta_samples)
     conf_interval = np.percentile(theta_samples, [2.5, 97.5])  # 95%置信区间
-
-
-
 
 
 

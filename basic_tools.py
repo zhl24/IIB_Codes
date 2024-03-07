@@ -73,22 +73,23 @@ def weighted_sum(particles, weights):
     return weighted_sum
 
 
-def inverted_gamma_to_mean_variance(alpha, beta):
-    """
-    Convert Inverted Gamma distribution parameters to mean and variance.
+def inverted_gamma_to_mean_variance(alphas, betas, weights):
+    # Calculate the mean of each particle distribution
+    particle_mean_vector = betas / (alphas - 1)
     
-    Parameters:
-    - alpha: shape parameter of the Inverted Gamma distribution (> 0).
-    - beta: scale parameter of the Inverted Gamma distribution (> 0).
+    # Calculate the weighted mean
+    mean = np.dot(weights, particle_mean_vector)
     
-    Returns:
-    - A tuple containing the mean and variance of the Inverted Gamma distribution.
-      Returns (None, None) if the mean or variance does not exist.
-    """
-    mean = max(0,beta / (alpha - 1))
+    # Calculate the squared mean and the expectation of X^2 for each particle
+    particle_mean_squared = particle_mean_vector ** 2
+    particle_variance = particle_mean_squared/(alphas-2)
+    particle_x2_expectation = particle_variance + particle_mean_squared
     
+    # Calculate the weighted sum of E[X^2] for particles
+    weighted_sum_x2 = np.dot(weights, particle_x2_expectation)
     
-    variance = max(0,beta**2 / ((alpha - 1)**2 * (alpha - 2)))
+    # Variance of the weighted sum
+    variance = weighted_sum_x2 - mean**2
     
     return mean, variance
 
