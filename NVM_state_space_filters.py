@@ -180,16 +180,7 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
             observation = np.array(observation).reshape(len(observation), 1) #Note that this is a must, since the observation array is by default in the row vector form.加了brackets[]方法会被视作是新的一行，直接用逗号间隔元素会被认作是row vector
         except: #Single float case, convert the float into a single element array
             observation = np.array([observation])
-        #previous_X = np.array(previous_X).reshape(nx0, 1)
-        # Kalman Prediction Step
-        #print(np.shape(previous_X))
-        #print(previous_X)
-        #print(nx0)
-        #print(noise_mean)
-        #print(np.shape(noise_mean))
-        
-###### Additional processing of the paticles to fit them in the HMM
-        #产生transition matrix for the augmented state
+
         n = matrix_exp.shape[0]
         # 创建一个 (n+1) x (n+1) 的矩阵
         combined_matrix = np.zeros((n + 1, n + 1))
@@ -211,13 +202,6 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, combined_matrix, augmented_cov_matrix) #This could be the main position of problem, since the noise mean passed is a row vector here
         
         
-        #print(inferred_X)
-        #inferred_X = inferred_X.reshape(nx0, 1)
-        
-        #print("inferred X",np.shape(inferred_X))
-        #print("inferred cov",np.shape(inferred_cov))
-        #print("g",np.shape(g))
-        #print("R",np.shape(R))
         inferred_X, inferred_cov, log_det_F,Ei = Kalman_correct(inferred_X, inferred_cov, observation, g, R,return_log_marginal = False, sigmaw_estimation=True)
         accumulated_Fs[i] = accumulated_Fs[i] - 0.5 * log_det_F   #Note that this term is already negative
         accumulated_Es[i] = accumulated_Es[i]  + Ei
@@ -243,15 +227,6 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
     
     # Resampling step: resample particles based on their weights
     indices = np.random.choice(np.arange(num_particles), size=num_particles, p=weights)
-    #print("weights type:", type(weights), "shape:", np.shape(weights))
-    #print("uncertaintys_inferred type:", type(uncertaintys_inferred), "length:", len(uncertaintys_inferred), "individual element type:", type(uncertaintys_inferred[0]) if uncertaintys_inferred else "N/A")
-    #print("Xs_inferred type:", type(Xs_inferred), "length:", len(Xs_inferred), "individual element type:", type(Xs_inferred[0]) if Xs_inferred else "N/A")
-    #print("log_marginals type:", type(log_marginals), "shape:", np.shape(log_marginals))
-    #print("alphaws type:", type(alphaws), "shape:", np.shape(alphaws))
-    #print("betaws type:", type(betaws), "shape:", np.shape(betaws))
-    #print("accumulated_log_marginals type:", type(accumulated_log_marginals), "shape:", np.shape(accumulated_log_marginals))
-    #print("accumulated_Es type:", type(accumulated_Es), "shape:", np.shape(accumulated_Es))
-    #print("accumulated_Fs type:", type(accumulated_Fs), "shape:", np.shape(accumulated_Fs))
 
     weights_resampled = 1/num_particles * np.ones(num_particles)
 
@@ -279,9 +254,6 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
     accumulated_log_marginals = accumulated_log_marginals_resampled
     accumulated_Es = accumulated_Es_resampled
     accumulated_Fs = accumulated_Fs_resampled
-    #Re run the particle filter to resample the inference results! Otherwise meaningless, since the resampled Gaussain parameters would be forgotten directly in the next time step
-    # Reset weights to 1/N for the resampled particles. The particles resampled should carry the same weights, and the inference result could be found directly from the mean.
-    #weights = np.full(num_particles, 1.0 / num_particles)
     
     if return_log_marginals:
         return np.array(Xs_inferred),np.array(uncertaintys_inferred), particles_sum_and_vars, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals    #Update the particle states
