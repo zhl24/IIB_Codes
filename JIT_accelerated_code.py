@@ -194,7 +194,7 @@ def generate_gamma_jumps(T,beta,C):
         for i in poisson_epochs:
             x = 1 / (beta * (np.exp(i /C) - 1))
             p = (1 + beta * x) * np.exp(-beta * x)
-            if np.random.binomial(n=1, p=p):
+            if np.random.rand() <= p:
                 x_list.append(x)
                 new_x_list.append(x)
         
