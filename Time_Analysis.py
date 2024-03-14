@@ -126,7 +126,7 @@ def main():
     betas = []
 
     ### From here we pregenerate the proposals for particle filter
-    mean_proposals,cov_proposals =  parallel_particle_transition_function(beta,C,T,N,num_particles,A,h,c=30)  #The dimensions are (num_particles,N,2,1) and (num_particles,N,2,2)
+    mean_proposals,cov_proposals =  parallel_particle_transition_function(beta,C,T,N,num_particles,A,h,c=100)  #The dimensions are (num_particles,N,2,1) and (num_particles,N,2,2)
 
 
     for i in tqdm(range(len(evaluation_points)),desc = "Processing"): #i is the time index we want for N

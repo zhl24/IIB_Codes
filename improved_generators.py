@@ -493,14 +493,36 @@ def compute_augmented_matrices(matrix_exp, particle_sum, noise_cov):
 
 
 @jit(nopython = True)
-def ultimate_NVM_pf_accelerated_code(M,N,gammaln_half_N_plus_alpha,gammaln_half_N_minus1_plus_alpha,gammaln_alphaws,accumulated_Es,accumulated_Fs,new_Es,new_Fs,alphaws,betaws):# The parallelised code after resampling
+def accelerated_alphaw_betaw_update(alphaws,betaws,accumulated_Es,accumulated_Fs,new_Es,new_Fs):
+    alphaws = alphaws+0.5
+    betaws = betaws + new_Es * 0.5
     accumulated_Es = accumulated_Es + new_Es
     accumulated_Fs = accumulated_Fs + new_Fs
-    alphaws = alphaws + 0.5
-    betaws = betaws + new_Es * 0.5
+    return alphaws, betaws,accumulated_Es,accumulated_Fs
+@jit(nopython = True)
+def ultimate_NVM_pf_accelerated_code(M,N,gammaln_half_N_plus_alpha,gammaln_half_N_minus1_plus_alpha,gammaln_alphaws,accumulated_Es,accumulated_Fs,new_Es,new_Fs,alphaws,betaws):# The parallelised code after resampling
     accumulated_log_marginals = -M*N/2*np.log(2*np.pi) + accumulated_Fs + alphaws * np.log(betaws) - (alphaws+N/2)*np.log(betaws + accumulated_Es/2) + gammaln_half_N_plus_alpha - gammaln_alphaws
     log_marginals = -M/2*np.log(2*np.pi) +new_Fs - (alphaws+N/2)*np.log(betaws+accumulated_Es/2)+(alphaws+(N-1)/2)*np.log(betaws+(accumulated_Es-new_Es)/2) + gammaln_half_N_plus_alpha - gammaln_half_N_minus1_plus_alpha
     return accumulated_log_marginals,log_marginals
+
+
+@njit
+def resample_particles(num_particles, indices, log_marginals, accumulated_log_marginals, alphaws, betaws, accumulated_Es, accumulated_Fs):
+    
+    
+    weights_resampled = 1 / num_particles * np.ones(num_particles)
+    
+    
+    log_marginals_resampled = log_marginals[indices]
+    accumulated_log_marginals_resampled = accumulated_log_marginals[indices]
+    
+    alphaws_resampled = alphaws[indices]
+    betaws_resampled = betaws[indices]
+    accumulated_Es_resampled = accumulated_Es[indices]
+    accumulated_Fs_resampled = accumulated_Fs[indices]
+    
+    return weights_resampled, log_marginals_resampled, accumulated_log_marginals_resampled, alphaws_resampled, betaws_resampled, accumulated_Es_resampled, accumulated_Fs_resampled
+
 
 def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, mean_proposal,cov_proposal, matrix_exp,g,R,alphaws,betaws,accumulated_Es,accumulated_Fs,N, return_log_marginals = False): #N is the time index
     
@@ -536,48 +558,48 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, mean_prop
         Xs_inferred.append(inferred_X)
         uncertaintys_inferred.append(inferred_cov)
 
-
+    alphaws, betaws,accumulated_Es,accumulated_Fs = accelerated_alphaw_betaw_update(alphaws,betaws,accumulated_Es,accumulated_Fs,new_Es,new_Fs)
     gammaln_half_N_plus_alpha = gammaln(N/2+alphaws)
     gammaln_half_N_minus1_plus_alpha = gammaln((N-1)/2+alphaws)
     gammaln_alphaws = gammaln(alphaws)
 
-    accumulated_log_marginals,log_marginals = ultimate_NVM_pf_accelerated_code(M,N,gammaln_half_N_plus_alpha,gammaln_half_N_minus1_plus_alpha,gammaln_alphaws,accumulated_Es,accumulated_Fs,new_Es,new_Fs,alphaws,betaws)
+    accumulated_log_marginals,log_marginals =  ultimate_NVM_pf_accelerated_code(M,N,gammaln_half_N_plus_alpha,gammaln_half_N_minus1_plus_alpha,gammaln_alphaws,accumulated_Es,accumulated_Fs,new_Es,new_Fs,alphaws,betaws)
     #Resampling
     weights = log_probs_to_normalised_probs(log_marginals)
 
     indices = np.random.choice(np.arange(num_particles), size=num_particles, p=weights)
 
 
-    weights_resampled = 1/num_particles * np.ones(num_particles)
+    #weights_resampled = 1/num_particles * np.ones(num_particles)
 
     # 由于 uncertaintys_inferred 和 Xs_inferred 是列表，其中包含 NumPy 数组，我们需要保持这一结构不变
     uncertaintys_inferred_resampled = [uncertaintys_inferred[i] for i in indices]
     Xs_inferred_resampled = [Xs_inferred[i] for i in indices]
 
     # log_marginals 和 accumulated_log_marginals 是列表，但根据您的描述它们似乎应该是一维数组。这里我们假设它们是简单的数值列表，因此也使用列表推导式进行重采样
-    log_marginals_resampled = [log_marginals[i] for i in indices]
-    accumulated_log_marginals_resampled = [accumulated_log_marginals[i] for i in indices]
+    #log_marginals_resampled = [log_marginals[i] for i in indices]
+    #accumulated_log_marginals_resampled = [accumulated_log_marginals[i] for i in indices]
 
     # alphaws, betaws, accumulated_Es 和 accumulated_Fs 都是 NumPy 数组，可以直接使用索引进行重采样
-    alphaws_resampled = alphaws[indices]
-    betaws_resampled = betaws[indices]
-    accumulated_Es_resampled = accumulated_Es[indices]
-    accumulated_Fs_resampled = accumulated_Fs[indices]
+    #alphaws_resampled = alphaws[indices]
+    #betaws_resampled = betaws[indices]
+    #accumulated_Es_resampled = accumulated_Es[indices]
+    #accumulated_Fs_resampled = accumulated_Fs[indices]
 
     # 用重采样后的变量替换原有变量
-    weights = weights_resampled
+    #weights = weights_resampled
     uncertaintys_inferred = uncertaintys_inferred_resampled
     Xs_inferred = Xs_inferred_resampled
-    log_marginals = log_marginals_resampled
-    alphaws = alphaws_resampled
-    betaws = betaws_resampled
-    accumulated_log_marginals = accumulated_log_marginals_resampled
-    accumulated_Es = accumulated_Es_resampled
-    accumulated_Fs = accumulated_Fs_resampled
+    #log_marginals = log_marginals_resampled
+    #alphaws = alphaws_resampled
+    #betaws = betaws_resampled
+    #accumulated_log_marginals = accumulated_log_marginals_resampled
+    #accumulated_Es = accumulated_Es_resampled
+    #accumulated_Fs = accumulated_Fs_resampled
     #Re run the particle filter to resample the inference results! Otherwise meaningless, since the resampled Gaussain parameters would be forgotten directly in the next time step
     # Reset weights to 1/N for the resampled particles. The particles resampled should carry the same weights, and the inference result could be found directly from the mean.
     #weights = np.full(num_particles, 1.0 / num_particles)
-    
+    weights, log_marginals, accumulated_log_marginals, alphaws, betaws, accumulated_Es, accumulated_Fs =  resample_particles(num_particles, indices, log_marginals, accumulated_log_marginals, alphaws, betaws, accumulated_Es, accumulated_Fs)
     if return_log_marginals:
         return np.array(Xs_inferred),np.array(uncertaintys_inferred), mean_proposal,cov_proposal, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals    #Update the particle states
     else:
