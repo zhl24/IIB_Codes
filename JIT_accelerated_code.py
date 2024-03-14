@@ -22,6 +22,28 @@ def factorial(n):
             f *= i
         return f
 
+
+@jit(nopython=True)
+def expm_specialized(A, t):
+    theta = A[1, 1]
+    exp_theta_t = np.exp(theta * t)
+    
+    # 创建第一个矩阵
+    mat1 = np.zeros((2, 2))
+    mat1[0, 1] = 1 / theta
+    mat1[1, 1] = 1
+    
+    # 创建第二个矩阵
+    mat2 = np.zeros((2, 2))
+    mat2[0, 0] = 1
+    mat2[0, 1] = -1 / theta
+    
+    # 计算结果
+    result = exp_theta_t * mat1 + mat2
+    return result
+
+
+
 @jit(nopython=True)
 def expm_pade(A):
     n = 6
@@ -49,7 +71,7 @@ def transition_function_ultimate_NVM_pf_accelerated_code(ng_paths, ng_jumps, jum
     h = h.astype(np.float64)  # 确保h是float64类型
 
     for ng_jump, jump_time, g_jump in zip(ng_jumps, jump_times, g_jumps):
-        special_vector = expm_pade(-A * jump_time) @ h
+        special_vector = expm_specialized(A,-jump_time) @ h
         sum += g_jump * special_vector
         cov += g_jump * (special_vector @ special_vector.T)
 
@@ -199,7 +221,7 @@ def generate_gamma_jumps(T,beta,C):
                 new_x_list.append(x)
         
         for x in new_x_list:
-            jump_times.append(np.random.uniform() + n)
+            jump_times.append(np.random.uniform(0, 1) + n)
         
     x_list = [jump for jump, time in zip(x_list, jump_times) if time < T]
     jump_times = [time for time in jump_times if time <T]
@@ -282,7 +304,7 @@ class SDE(Levy_Point_Process):
             system_jumps = []
             for j,jump_time in enumerate(jump_times):
                 NVM_jump = NVM_jumps[j]
-                system_jump = NVM_jump * expm(self.A * (evaluation_point-jump_time)) @ self.h
+                system_jump = NVM_jump * expm_specialized(self.A , evaluation_point-jump_time) @ self.h
                 system_jumps.append(list(system_jump))
                 
             samples.append(self.general_integrate([evaluation_point],system_jumps,jump_times)[0])#Extracting the single element at evaluation
@@ -445,6 +467,8 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, particles
         inferred_X, inferred_cov = Kalman_transit(previous_X, previous_X_uncertainty, combined_matrix, augmented_cov_matrix) #This could be the main position of problem, since the noise mean passed is a row vector here
 
         inferred_X, inferred_cov, log_det_F,Ei = Kalman_correct(inferred_X, inferred_cov, observation, g, R)
+
+        
         accumulated_Fs[i] = accumulated_Fs[i] - 0.5 * log_det_F   #Note that this term is already negative
         accumulated_Es[i] = accumulated_Es[i]  + Ei
         #QAccumulated terms for each particle
