@@ -10,7 +10,7 @@ from numba import jit,objmode,float64, int32
 
 
 
-def parallel_particle_transition_function(beta,C,T,resolution,num_particles,A,h,c=50):
+def parallel_particle_transition_function(beta,C,T,resolution,num_particles,A,h,c=10):
     h = h.astype(np.float64)  # 将 h 转换为 float64 类型
 
     gamma_jump_matrix,jump_time_matrix = parallel_particle_Gamma_generator(beta,C,T,resolution,num_particles,c = c)
@@ -29,9 +29,9 @@ def parallel_particle_transition_function(beta,C,T,resolution,num_particles,A,h,
 
 
 @jit(nopython = True)
-def parallel_particle_Gamma_generator(beta,C,T,resolution,num_particles,c=50): #First 2 are tyhe Gamma process parameters. T and resolution are the time axis parameters, and c is the number of samples in the Gamma process simulation
+def parallel_particle_Gamma_generator(beta,C,T,resolution,num_particles,c=10): #First 2 are tyhe Gamma process parameters. T and resolution are the time axis parameters, and c is the number of samples in the Gamma process simulation
     dt = T/resolution
-    samples_matrix = np.random.exponential(1/T, (num_particles,c*resolution))  #The jump size matrix
+    samples_matrix = np.random.exponential(1/dt, (num_particles,c*resolution))  #The jump size matrix
     for n in range(num_particles):  # 对于每一组实验
         for t in range(resolution):  # 对于每一组中的时间段
             start_index = t*c
@@ -570,35 +570,13 @@ def ultimate_NVM_pf(observation, previous_Xs, previous_X_uncertaintys, mean_prop
     indices = np.random.choice(np.arange(num_particles), size=num_particles, p=weights)
 
 
-    #weights_resampled = 1/num_particles * np.ones(num_particles)
 
-    # 由于 uncertaintys_inferred 和 Xs_inferred 是列表，其中包含 NumPy 数组，我们需要保持这一结构不变
     uncertaintys_inferred_resampled = [uncertaintys_inferred[i] for i in indices]
     Xs_inferred_resampled = [Xs_inferred[i] for i in indices]
 
-    # log_marginals 和 accumulated_log_marginals 是列表，但根据您的描述它们似乎应该是一维数组。这里我们假设它们是简单的数值列表，因此也使用列表推导式进行重采样
-    #log_marginals_resampled = [log_marginals[i] for i in indices]
-    #accumulated_log_marginals_resampled = [accumulated_log_marginals[i] for i in indices]
-
-    # alphaws, betaws, accumulated_Es 和 accumulated_Fs 都是 NumPy 数组，可以直接使用索引进行重采样
-    #alphaws_resampled = alphaws[indices]
-    #betaws_resampled = betaws[indices]
-    #accumulated_Es_resampled = accumulated_Es[indices]
-    #accumulated_Fs_resampled = accumulated_Fs[indices]
-
-    # 用重采样后的变量替换原有变量
-    #weights = weights_resampled
     uncertaintys_inferred = uncertaintys_inferred_resampled
     Xs_inferred = Xs_inferred_resampled
-    #log_marginals = log_marginals_resampled
-    #alphaws = alphaws_resampled
-    #betaws = betaws_resampled
-    #accumulated_log_marginals = accumulated_log_marginals_resampled
-    #accumulated_Es = accumulated_Es_resampled
-    #accumulated_Fs = accumulated_Fs_resampled
-    #Re run the particle filter to resample the inference results! Otherwise meaningless, since the resampled Gaussain parameters would be forgotten directly in the next time step
-    # Reset weights to 1/N for the resampled particles. The particles resampled should carry the same weights, and the inference result could be found directly from the mean.
-    #weights = np.full(num_particles, 1.0 / num_particles)
+
     weights, log_marginals, accumulated_log_marginals, alphaws, betaws, accumulated_Es, accumulated_Fs =  resample_particles(num_particles, indices, log_marginals, accumulated_log_marginals, alphaws, betaws, accumulated_Es, accumulated_Fs)
     if return_log_marginals:
         return np.array(Xs_inferred),np.array(uncertaintys_inferred), mean_proposal,cov_proposal, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals    #Update the particle states
