@@ -373,6 +373,8 @@ class SDE(Levy_Point_Process):
             #system_jumps = NVM_jumps * np.exp(self.A*(evaluation_point-jump_times))*self.h
             system_jumps = []
             for j,jump_time in enumerate(jump_times):
+                if jump_time > evaluation_point:
+                    break
                 NVM_jump = NVM_jumps[j]
                 system_jump = NVM_jump * expm_specialized(self.A , evaluation_point-jump_time) @ self.h
                 system_jumps.append(list(system_jump))
