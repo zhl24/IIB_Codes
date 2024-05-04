@@ -28,7 +28,7 @@ function myFunction(x)
 end
 
 
-function vectorized_particle_Gamma_generator(beta, C, T, resolution, num_particles, c=50)
+function vectorized_particle_Gamma_generator(beta, C, T, resolution, num_particles, c=50) #Resolutuon is the total number of data points, and T is the total length of the time frame
     dt = T / resolution
     samples_matrix = rand(Exponential(1/T), num_particles, c*resolution)
     for n in 1:num_particles
