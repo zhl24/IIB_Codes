@@ -11,12 +11,12 @@ using StatsFuns: logsumexp
 export vectorized_particle_Gamma_generator
 export myFunction
 export integrate
-export expm_specialized_vectorized
+export expm_specialized
 export log_probs_to_normalised_probs
 export weighted_sum
 export inverted_gamma_to_mean_variance
-
-
+export generate_SDE_samples
+export vectorized_particle_transition_function
 ###Chatgpt translation from here
 export compute_augmented_matrices, accelerated_alphaw_betaw_update, ultimate_NVM_pf_accelerated_code, resample_particles
 export ultimate_NVM_pf
@@ -51,10 +51,9 @@ function vectorized_particle_Gamma_generator(beta, C, T, resolution, num_particl
 end
 
 
-function expm_specialized_vectorized(A, t_matrix)
+function expm_specialized(A, t_matrix)
     theta = A[2, 2]
     exp_theta_t = exp.(theta .* t_matrix)
-
     mat1 = zeros(2, 2)
     mat1[1, 2] = 1 / theta
     mat1[2, 2] = 1
@@ -66,6 +65,26 @@ function expm_specialized_vectorized(A, t_matrix)
     result = exp_theta_t .* mat1 .+ mat2
     return result
 end
+
+
+function vectorized_particle_transition_function(beta, C, T, resolution, num_particles, A, h, c=10)
+    # Julia中不需要像Python那样显式地指定数据类型，因为Julia会自动处理类型转换
+    h = Float64.(h)  # 确保h是Float64类型
+
+    gamma_jump_matrix, jump_time_matrix = vectorized_particle_Gamma_generator(beta, C, T, resolution, num_particles, c)
+
+    expA_tau = expm_specialized(A, -jump_time_matrix)
+    expA_tau_h = expA_tau * h
+    gamma_jump_matrix = reshape(gamma_jump_matrix, size(gamma_jump_matrix)..., 1, 1)
+    raw_mean_matrix = gamma_jump_matrix .* expA_tau_h
+    pre_cov_matrix = sqrt.(gamma_jump_matrix) .* expA_tau_h
+    raw_cov_matrix = pre_cov_matrix .* permutedims(pre_cov_matrix, (1, 2, 3, 5, 4))  # 对最后两个维度进行交换
+    mean_matrix = reshape(sum(reshape(raw_mean_matrix, num_particles, resolution, c, 2, 1), dims=3), num_particles, resolution, 2, 1)
+    cov_matrix = reshape(sum(reshape(raw_cov_matrix, num_particles, resolution, c, 2, 2), dims=3), num_particles, resolution, 2, 2)
+
+    return mean_matrix, cov_matrix
+end
+
 
 
 function integrate(evaluation_points, x_series, t_series)
@@ -83,6 +102,32 @@ function integrate(evaluation_points, x_series, t_series)
     end
     
     return results
+end
+
+#Only iterate for once, so not optimized at all.
+function generate_SDE_samples(subordinator_jumps,jump_times,muw,sigmaw,A,h,evaluation_points) #The subordinator to be used is Gamma. jump times are inherited across all jump types
+    NVM_jumps = muw .* subordinator_jumps .+ sigmaw .* sqrt.(subordinator_jumps) .* randn(size(subordinator_jumps))
+    samples = zeros(2,length(evaluation_points))
+
+    for (i, evaluation_point) in enumerate(evaluation_points)
+        sample = 0
+        #print(i)
+        for (j, jump_time) in enumerate(jump_times)
+            NVM_jump = NVM_jumps[j]
+            if jump_time < evaluation_point
+                 #An internal check here for simplicity
+            system_jump = NVM_jump * expm_specialized(A, evaluation_point - jump_time) * h
+            #print(expm_specialized(A, evaluation_point - jump_time)*h)
+            sample = sample .+ system_jump 
+            #print(sample)
+            #print(size(sample))
+            end
+        end
+        #Compute the sample value at each time point
+        samples[:,i] .= sample
+    end
+
+    return samples
 end
 
 
