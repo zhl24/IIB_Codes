@@ -4,12 +4,11 @@ using Distributions
 using LinearAlgebra
 using Statistics
 using StatsFuns: logsumexp
-
+using Base.Threads
 
 
 
 export vectorized_particle_Gamma_generator
-export myFunction
 export integrate
 export expm_specialized
 export log_probs_to_normalised_probs
@@ -22,23 +21,23 @@ export compute_augmented_matrices, accelerated_alphaw_betaw_update, ultimate_NVM
 export ultimate_NVM_pf
 
 
-function myFunction(x)
-    # 函数实现
-    return x^2
-end
+
 
 
 function vectorized_particle_Gamma_generator(beta, C, T, resolution, num_particles, c=50) #Resolutuon is the total number of data points, and T is the total length of the time frame
     dt = T / resolution
     samples_matrix = rand(Exponential(1/T), num_particles, c*resolution)
-    for n in 1:num_particles
-        for t in 1:resolution
-            start_index = (t-1)*c + 1
-            end_index = start_index + c - 1
+    @threads for n in 1:num_particles
+        t_array = Int64.(1:resolution)
+        start_indices = (t_array.-1).*c.+1
+        end_indices = start_indices .+ c .- 1
+        @threads for t in t_array
+            start_index = start_indices[t]
+            end_index = end_indices[t]
             samples_matrix[n, start_index:end_index] = cumsum(samples_matrix[n, start_index:end_index])
         end
     end
-    for i in 1:num_particles
+    @threads for i in 1:num_particles
         for j in 1:(c*resolution)
             poisson_epoch = samples_matrix[i, j]
             x = 1 / (beta * (exp(poisson_epoch / C) - 1))
@@ -53,34 +52,37 @@ end
 
 function expm_specialized(A, t_matrix)
     theta = A[2, 2]
-    exp_theta_t = exp.(theta .* t_matrix)
-    mat1 = zeros(2, 2)
-    mat1[1, 2] = 1 / theta
-    mat1[2, 2] = 1
+    exp_theta_t = exp.(theta .* t_matrix)  # 对每个元素进行指数计算
+    
+    # 定义 mat1 和 mat2
+    mat1 = [0.0 1.0/theta; 0.0 1.0]
+    mat2 = [1.0 -1.0/theta; 0.0 0.0]
 
-    mat2 = zeros(2, 2)
-    mat2[1, 1] = 1
-    mat2[1, 2] = -1 / theta
+    # 初始化结果数组，每个元素是独立的2x2矩阵
+    result = Array{Matrix{Float64}, 2}(undef, size(t_matrix, 1), size(t_matrix, 2))
+    
+    @threads for i in 1:size(t_matrix, 1)
+        @threads for j in 1:size(t_matrix, 2)
+            # 计算每个元素对应的结果矩阵
+            result[i, j] = exp_theta_t[i, j] * mat1 + mat2
+        end
+    end
 
-    result = exp_theta_t .* mat1 .+ mat2
     return result
 end
 
 
-function vectorized_particle_transition_function(beta, C, T, resolution, num_particles, A, h, c=10)
-    # Julia中不需要像Python那样显式地指定数据类型，因为Julia会自动处理类型转换
-    h = Float64.(h)  # 确保h是Float64类型
 
+function vectorized_particle_transition_function(beta, C, T, resolution, num_particles, A, h ;c=10) #Modify the basic proposals to the mean and cov forms which would be used to compute the transition matrix anmd Gaussian covariance
     gamma_jump_matrix, jump_time_matrix = vectorized_particle_Gamma_generator(beta, C, T, resolution, num_particles, c)
 
-    expA_tau = expm_specialized(A, -jump_time_matrix)
-    expA_tau_h = expA_tau * h
-    gamma_jump_matrix = reshape(gamma_jump_matrix, size(gamma_jump_matrix)..., 1, 1)
+    expA_tau = expm_specialized(A, -jump_time_matrix) #The exponential matrix for each jump time. In Julia, it would be recognized as of the same shape as jump_time_matrix. Directly ready to be broadcasting.
+    expA_tau_h = expA_tau .* [h]
     raw_mean_matrix = gamma_jump_matrix .* expA_tau_h
     pre_cov_matrix = sqrt.(gamma_jump_matrix) .* expA_tau_h
-    raw_cov_matrix = pre_cov_matrix .* permutedims(pre_cov_matrix, (1, 2, 3, 5, 4))  # 对最后两个维度进行交换
-    mean_matrix = reshape(sum(reshape(raw_mean_matrix, num_particles, resolution, c, 2, 1), dims=3), num_particles, resolution, 2, 1)
-    cov_matrix = reshape(sum(reshape(raw_cov_matrix, num_particles, resolution, c, 2, 2), dims=3), num_particles, resolution, 2, 2)
+    raw_cov_matrix = (x -> x * x').(pre_cov_matrix) #A broadcasting operation
+    mean_matrix = reshape(sum(reshape(raw_mean_matrix, num_particles, resolution, c), dims=3), num_particles, resolution)
+    cov_matrix = reshape(sum(reshape(raw_cov_matrix, num_particles, resolution, c), dims=3), num_particles, resolution)
 
     return mean_matrix, cov_matrix
 end
@@ -116,7 +118,8 @@ function generate_SDE_samples(subordinator_jumps,jump_times,muw,sigmaw,A,h,evalu
             NVM_jump = NVM_jumps[j]
             if jump_time < evaluation_point
                  #An internal check here for simplicity
-            system_jump = NVM_jump * expm_specialized(A, evaluation_point - jump_time) * h
+            expt = expm_specialized(A, evaluation_point - jump_time)
+            system_jump = NVM_jump * expt[1,1] * h
             #print(expm_specialized(A, evaluation_point - jump_time)*h)
             sample = sample .+ system_jump 
             #print(sample)
