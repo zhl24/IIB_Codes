@@ -8,7 +8,7 @@ using .Threads
 using ProgressMeter
 using SpecialFunctions
 using StatsBase
-
+using Plots
 
 
 export vectorized_particle_Gamma_generator
@@ -19,11 +19,26 @@ export weighted_sum
 export inverted_gamma_to_mean_variance
 export generate_SDE_samples
 export vectorized_particle_transition_function
-###Chatgpt translation from here
 export compute_augmented_matrices
 export NVM_mpf_1tstep
 export Normal_Gamma_Langevin_MPF
 export Normal_Gamma_Langevin_GRW_MCMC
+export plot_samples_distribution
+
+
+
+#Plotting Functions ##############################################################################################################################################################
+function plot_samples_distribution(samples, true_value, title;bin_num = 30)
+    plt = histogram(samples, bins=bin_num, alpha=0.6, label="Samples Distribution", title=title, xlabel="Value", ylabel="Frequency")
+    vline!([mean(samples)], label="Mean", color=:red)
+    vline!([true_value], label="True Value", color=:green)
+
+    # Calculate 95% confidence interval
+    conf_interval = quantile(samples, [0.025, 0.975])
+    vline!(conf_interval, label="95% CI", color=:blue, linestyle=:dash)
+    return plt
+end
+
 
 
 #Proposal Generator########################################################################################################################################################################################################
@@ -493,14 +508,19 @@ function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,
     #Initialization
     previous_log_state_probability = -Inf64 #The prior positions are kept
     current_log_state_probability = 0.0
+
+    #GRW MCMC
     @showprogress for i = 2:(num_iter+1)
+        #Read the proposed positions
         theta = theta_samples[i-1]
         beta = beta_samples[i-1]
         C = C_samples[i-1]
+        #The redundant returned values are kept for possible future use. So far, only the accumulated_log_marginals is used
         inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,C0, g,R, evaluation_points)
         current_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
 
-        if log(rand()) > (current_log_state_probability - previous_log_state_probability) #Rejection Case
+        #Rejection Case
+        if log(rand()) > (current_log_state_probability - previous_log_state_probability) 
             theta_samples[i-1] = theta_samples[i-2]
             C_samples[i-1] = C_samples[i-1]
             beta_samples[i-1] = beta_samples[i-2]
@@ -515,6 +535,9 @@ function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,
     return theta_samples, beta_samples, C_samples
 
 end
+
+
+
 
 
 
