@@ -50,7 +50,9 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
             samples_matrix[i, j] = rand() <= p ? x : 0
         end
     end
-    jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)ump_time_matrix
+    jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)
+
+    return samples_matrix, jump_time_matrix
 end
 
 
@@ -390,18 +392,104 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
 end
 
 
-function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,num_iter,theta0,beta0,C0,l_theta,l_beta,l_C)
-    
-    theta_samples = zeros(num_iter)
-    beta_samples = zeros(num_iter)
-    C_samples = zeros(num_iter)
 
-    @showprogress for i = 1:num_iter
 
+#The Overloaded version specifically for particle MCMC, just taking away the common initialization and passed as parameters
+function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,C0, g,R, evaluation_points)
+    #observation is the noisy observation to be inferred
+    #resolution and T are the parameters used to construct the time axis
+    #num_particles is just number of particles
+    #theta is the Langevin parameter. beta and C are the parameters for the Gamma process.
+    #kw is the prior parameter for muw inference
+    #alphaw_prior and betaw_prior are scalar parameters for the prior in posterior inference of sigmaw
+    # Kalman parameters are just Kalman parameters
+    #kv is the guess for the relative observation noise
+    A = zeros(2,2)
+    A[1,2] = 1.0
+    A[2,2] = theta
+    dt = T/resolution #The time step size
+    matrix_exp = expm_specialized(A,dt)[1] #Constant factor used to construct the transition matrix
+
+
+    mean_proposals , cov_proposals = vectorized_particle_transition_function(beta, C, T, resolution, num_particles, A, h ;c=10)
+    previous_Xs = [copy(X0) for _ in 1:num_particles]
+    previous_X_uncertaintys = [copy(C0) for _ in 1:num_particles]
+    weights = ones(num_particles)/num_particles
+
+    #Result conatiners pre-allocation
+    sigmaw2_means = zeros(resolution)
+    sigmaw2_uncertaintys = zeros(resolution) #Both are scalar terms since the parameter inferred is scalar
+    accumulated_Es = zeros(num_particles)
+    accumulated_Fs = zeros(num_particles)
+    accumulated_log_marginals = zeros(num_particles)
+    inferred_Xs = [copy(X0) for _ in 1:resolution]
+    inferred_covs = [copy(C0) for _ in 1:resolution]
+
+
+    #Running the marginalised particle filter
+    for i in 1:resolution
+        t = evaluation_points[i]
+        observation = observations[i]
+
+        mean_proposal = mean_proposals[:,i] #The particle proposals at the ith time point
+        cov_proposal = cov_proposals[:,i] #Similarly
+
+        sigmaw2,sigmaw2_uncertainty = inverted_gamma_to_mean_variance(alphaws,betaws,weights)
+        sigmaw2_means[i] = sigmaw2
+        sigmaw2_uncertaintys[i] = sigmaw2_uncertainty
+
+        previous_Xs, previous_X_uncertaintys, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals = NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_proposal, cov_proposal, matrix_exp, g, R, alphaws, betaws, accumulated_Es, accumulated_Fs, i)
+
+        inferred_Xs[i] = weighted_sum(previous_Xs,weights)
+        inferred_covs[i] = weighted_sum(previous_X_uncertaintys,weights)
 
     end
 
+    return inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals
+
 end
+
+
+
+function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,num_iter,kw ,alphaw_prior,betaw_prior,kv, theta0,beta0, C0, l_theta,l_beta,l_C)
+    
+    theta_samples = zeros(num_iter+1)
+    beta_samples = zeros(num_iter+1)
+    C_samples = zeros(num_iter+1)
+    theta_samples[1] = theta0
+    beta_samples[1] = beta0
+    C_samples[1] = C0
+
+    #Langevin System Specifications
+    h = zeros(2,1)
+    h[2,1] = 1
+
+    #Prior construction
+    alphaws = alphaw_prior .* ones(num_particles)
+    betaws = betaw_prior .* ones(num_particles)
+
+    #Kalman Filter Initialization
+    X0 = zeros(3,1) #Do not use list definition, would cause the compiler to simplify the dimension
+    C0 = zeros(3,3)
+    C0[3,3] = kw
+    g = zeros(1,3)#Observation matrix for single state
+    g[1,1] = 1
+    R = kv #The single state observation noise covariance. Marginalised Kalman here, so this is the relative noise scale factor.
+
+    #Build the time axis
+    evaluation_points = collect(range(0,T,resolution)) #Use collect to convert the range object to array
+
+    @showprogress for i = 1:(num_iter+1)
+        theta = theta_samples[i]
+        beta = beta_samples[i]
+        C = C_samples[i]
+        _, _, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,C0, g,R, evaluation_points)
+
+        
+    end
+
+end
+
 
 
 
