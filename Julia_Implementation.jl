@@ -51,7 +51,7 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
         end
     end
     jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)
-
+    
     return samples_matrix, jump_time_matrix
 end
 
@@ -451,7 +451,7 @@ end
 
 
 
-function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,num_iter,kw ,alphaw_prior,betaw_prior,kv, theta0,beta0, C0, l_theta,l_beta,l_C)
+function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,num_iter,kw ,alphaw_prior,betaw_prior,kv, theta0,beta0, C0, l_theta0,l_beta0,l_C0)
     
     theta_samples = zeros(num_iter+1)
     beta_samples = zeros(num_iter+1)
@@ -479,14 +479,40 @@ function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,
     #Build the time axis
     evaluation_points = collect(range(0,T,resolution)) #Use collect to convert the range object to array
 
-    @showprogress for i = 1:(num_iter+1)
-        theta = theta_samples[i]
-        beta = beta_samples[i]
-        C = C_samples[i]
-        _, _, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,C0, g,R, evaluation_points)
+    #Container pre-allocation
+    # 预分配 inferred_Xs 和 inferred_covs
+    inferred_Xs = [Matrix{Float64}(undef, 2, 2) for _ in 1:resolution]
+    inferred_covs = [Matrix{Float64}(undef, 2, 2) for _ in 1:resolution]
+    # 预分配 sigmaw2_means 和 sigmaw2_uncertaintys
+    sigmaw2_means = Vector{Float64}(undef, resolution)
+    sigmaw2_uncertaintys = Vector{Float64}(undef, resolution)
+    # 预分配 accumulated_Es, accumulated_Fs, 和 accumulated_log_marginals
+    accumulated_Es = Vector{Float64}(undef, num_particles)
+    accumulated_Fs = Vector{Float64}(undef, num_particles)
+    accumulated_log_marginals = Vector{Float64}(undef, num_particles)
+    #Initialization
+    previous_log_state_probability = -Inf64 #The prior positions are kept
+    current_log_state_probability = 0.0
+    @showprogress for i = 2:(num_iter+1)
+        theta = theta_samples[i-1]
+        beta = beta_samples[i-1]
+        C = C_samples[i-1]
+        inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,C0, g,R, evaluation_points)
+        current_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
 
-        
+        if log(rand()) > (current_log_state_probability - previous_log_state_probability) #Rejection Case
+            theta_samples[i-1] = theta_samples[i-2]
+            C_samples[i-1] = C_samples[i-1]
+            beta_samples[i-1] = beta_samples[i-2]
+        end
+
+        #Propose the new positions via GRW
+        theta_samples[i] = theta_samples[i-1] + randn() * l_theta0
+        beta_samples[i] = abs(beta_samples[i-1] + randn() * l_beta0)
+        C_samples[i] = abs(C_samples[i-1] + randn() * l_C0)
     end
+
+    return theta_samples, beta_samples, C_samples
 
 end
 
