@@ -23,7 +23,7 @@ export vectorized_particle_transition_function
 export compute_augmented_matrices
 export NVM_mpf_1tstep
 export Normal_Gamma_Langevin_MPF
-
+export Normal_Gamma_Langevin_GRW_MCMC
 
 
 #Proposal Generator########################################################################################################################################################################################################
@@ -390,6 +390,18 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
 end
 
 
+function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,num_iter,theta0,beta0,C0,l_theta,l_beta,l_C)
+    
+    theta_samples = zeros(num_iter)
+    beta_samples = zeros(num_iter)
+    C_samples = zeros(num_iter)
+
+    @showprogress for i = 1:num_iter
+
+
+    end
+
+end
 
 
 
