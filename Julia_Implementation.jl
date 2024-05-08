@@ -28,10 +28,11 @@ export Normal_Gamma_Langevin_MPF
 
 #Proposal Generator########################################################################################################################################################################################################
 
+
 function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, c::Int=50) #Resolutuon is the total number of data points, and T is the total length of the time frame
     dt = T / resolution
     samples_matrix = rand(Exponential(1/dt), num_particles, c*resolution)
-    for n in 1:num_particles
+    @threads for n in 1:num_particles
         t_array = Int64.(1:resolution)
         start_indices = (t_array.-1).*c.+1
         end_indices = start_indices .+ c .- 1
@@ -41,7 +42,7 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
             samples_matrix[n, start_index:end_index] = cumsum(samples_matrix[n, start_index:end_index])
         end
     end
-    for i in 1:num_particles
+    @threads for i in 1:num_particles
         for j in 1:(c*resolution)
             poisson_epoch = samples_matrix[i, j]
             x = 1 / (beta * (exp(poisson_epoch / C) - 1))
@@ -49,12 +50,10 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
             samples_matrix[i, j] = rand() <= p ? x : 0
         end
     end
-    jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)
-    println(c*resolution)
-    println(c)
-    println(resolution)
-    return samples_matrix, jump_time_matrix
+    jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)ump_time_matrix
 end
+
+
 
 
 
@@ -99,7 +98,7 @@ function vectorized_particle_transition_function(beta, C, T, resolution, num_par
     mean_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
     cov_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
     @threads for i in 1:num_particles
-        for j in 1:resolution * c
+        @threads for j in 1:resolution * c
             mean_matrix[i, j] = exp_theta_t[i, j]*temp_mean_matrix + temp_mat2_h
             cov_matrix[i,j] = mean_matrix[i, j] * mean_matrix[i, j]' * gamma_jump_matrix[i,j]
             mean_matrix[i,j] *= gamma_jump_matrix[i,j]
@@ -269,7 +268,7 @@ function NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_
     inferred_cov = similar(cov_proposal)
 
 
-    @threads for i in 1:num_particles
+    for i in 1:num_particles
         combined_matrix, augmented_cov_matrix = compute_augmented_matrices(matrix_exp, mean_proposal[i],cov_proposal[i])
         inferred_X, inferred_cov = Kalman_transit(previous_Xs[i], previous_X_uncertaintys[i], combined_matrix, augmented_cov_matrix)
         inferred_X, inferred_cov, log_det_F, Ei = Kalman_correct(inferred_X, inferred_cov, observation, g, R)
@@ -358,8 +357,8 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
     weights = ones(num_particles)/num_particles
 
     #Result conatiners pre-allocation
-    sigmaw2_means = zeros(num_particles)
-    sigmaw2_uncertaintys = zeros(num_particles) #Both are scalar terms since the parameter inferred is scalar
+    sigmaw2_means = zeros(resolution)
+    sigmaw2_uncertaintys = zeros(resolution) #Both are scalar terms since the parameter inferred is scalar
     accumulated_Es = zeros(num_particles)
     accumulated_Fs = zeros(num_particles)
     accumulated_log_marginals = zeros(num_particles)
@@ -368,7 +367,7 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
 
 
     #Running the marginalised particle filter
-    for i in 1:resolution
+    @showprogress for i in 1:resolution
         t = evaluation_points[i]
         observation = observations[i]
 
