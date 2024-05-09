@@ -116,8 +116,8 @@ function vectorized_particle_transition_function(beta, C, T, resolution, num_par
     # 初始化结果2D数组
     mean_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
     cov_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
-    @inbounds for i in 1:num_particles
-        @inbounds for j in 1:resolution * c
+    for i in 1:num_particles
+        for j in 1:resolution * c
             mean_matrix[i, j] = exp_theta_t[i, j]*temp_mean_matrix + temp_mat2_h
             cov_matrix[i,j] = mean_matrix[i, j] * mean_matrix[i, j]' * gamma_jump_matrix[i,j]
             mean_matrix[i,j] *= gamma_jump_matrix[i,j]
