@@ -46,12 +46,15 @@ end
 
 function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, c::Int=50) #Resolutuon is the total number of data points, and T is the total length of the time frame
     dt = T / resolution
-    samples_matrix = rand(Exponential(1/dt), num_particles, c*resolution)
+    rng = MersenneTwister()  # 创建一个随机数生成器实例
+    # 使用显式的 RNG 实例生成随机数
+    samples_matrix = rand(rng, Exponential(1/dt), num_particles, c*resolution)
+    jump_time_matrix = rand(rng, Uniform(0, dt), num_particles, c*resolution)
     for n in 1:num_particles
         t_array = Int64.(1:resolution)
         start_indices = (t_array.-1).*c.+1
         end_indices = start_indices .+ c .- 1
-        for t in t_array
+        @inbounds for t in t_array
             start_index = start_indices[t]
             end_index = end_indices[t]
             samples_matrix[n, start_index:end_index] = cumsum(samples_matrix[n, start_index:end_index])
@@ -65,11 +68,10 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
             samples_matrix[i, j] = rand() <= p ? x : 0
         end
     end
-    jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)
+    #jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)
     
     return samples_matrix, jump_time_matrix
 end
-
 
 
 
@@ -114,8 +116,8 @@ function vectorized_particle_transition_function(beta, C, T, resolution, num_par
     # 初始化结果2D数组
     mean_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
     cov_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
-    for i in 1:num_particles
-        for j in 1:resolution * c
+    @inbounds for i in 1:num_particles
+        @inbounds for j in 1:resolution * c
             mean_matrix[i, j] = exp_theta_t[i, j]*temp_mean_matrix + temp_mat2_h
             cov_matrix[i,j] = mean_matrix[i, j] * mean_matrix[i, j]' * gamma_jump_matrix[i,j]
             mean_matrix[i,j] *= gamma_jump_matrix[i,j]
