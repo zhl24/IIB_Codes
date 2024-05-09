@@ -47,7 +47,7 @@ end
 function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, c::Int=50) #Resolutuon is the total number of data points, and T is the total length of the time frame
     dt = T / resolution
     samples_matrix = rand(Exponential(1/dt), num_particles, c*resolution)
-    @threads for n in 1:num_particles
+    for n in 1:num_particles
         t_array = Int64.(1:resolution)
         start_indices = (t_array.-1).*c.+1
         end_indices = start_indices .+ c .- 1
@@ -57,7 +57,7 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
             samples_matrix[n, start_index:end_index] = cumsum(samples_matrix[n, start_index:end_index])
         end
     end
-    @threads for i in 1:num_particles
+    for i in 1:num_particles
         for j in 1:(c*resolution)
             poisson_epoch = samples_matrix[i, j]
             x = 1 / (beta * (exp(poisson_epoch / C) - 1))
@@ -86,8 +86,8 @@ function expm_specialized(A, t_matrix)
     # 初始化结果数组，每个元素是独立的2x2矩阵
     result = Array{Matrix{Float64}, 2}(undef, size(t_matrix, 1), size(t_matrix, 2))
     
-    @threads for i in 1:size(t_matrix, 1)
-        @threads for j in 1:size(t_matrix, 2)
+    for i in 1:size(t_matrix, 1)
+        for j in 1:size(t_matrix, 2)
             # 计算每个元素对应的结果矩阵
             result[i, j] = exp_theta_t[i, j] * mat1 + mat2
         end
@@ -114,8 +114,8 @@ function vectorized_particle_transition_function(beta, C, T, resolution, num_par
     # 初始化结果2D数组
     mean_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
     cov_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
-    @threads for i in 1:num_particles
-        @threads for j in 1:resolution * c
+    for i in 1:num_particles
+        for j in 1:resolution * c
             mean_matrix[i, j] = exp_theta_t[i, j]*temp_mean_matrix + temp_mat2_h
             cov_matrix[i,j] = mean_matrix[i, j] * mean_matrix[i, j]' * gamma_jump_matrix[i,j]
             mean_matrix[i,j] *= gamma_jump_matrix[i,j]
@@ -163,12 +163,15 @@ function generate_SDE_samples(subordinator_jumps,jump_times,muw,sigmaw,A,h,evalu
             NVM_jump = NVM_jumps[j]
             if jump_time < evaluation_point
                  #An internal check here for simplicity
-            expt = expm_specialized(A, evaluation_point - jump_time)
-            system_jump = NVM_jump * expt[1,1] * h
-            #print(expm_specialized(A, evaluation_point - jump_time)*h)
-            sample = sample .+ system_jump 
-            #print(sample)
-            #print(size(sample))
+                expt = expm_specialized(A, evaluation_point - jump_time)
+                #println(size(NVM_jump))
+                #println(size(expt[1,1]))
+                #println(size(h))
+                system_jump = NVM_jump .* expt[1,1]* h
+                #print(expm_specialized(A, evaluation_point - jump_time)*h)
+                sample = sample .+ system_jump 
+                #print(sample)
+                #print(size(sample))
             end
         end
         #Compute the sample value at each time point
@@ -237,7 +240,7 @@ function Kalman_correct(X, P, Y, g, R)
     # Innovation covariance
     S = dot(g ,P * g') + R
     K = P * g' / S
-    return X + K * Ino, (I - K * g) * P, log(S), Ino ./ S * Ino
+    return X + K * Ino, (I - K * g) * P, log(S), Ino / S * Ino
 end
 
 
