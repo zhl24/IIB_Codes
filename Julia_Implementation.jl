@@ -266,7 +266,7 @@ end
 
 function NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_proposal, cov_proposal, matrix_exp, g, R, alphaws, betaws, accumulated_Es, accumulated_Fs, N)
     #N is the time index point
-    M = length(observation)
+    M = 1.0 #single observation
     num_particles = size(mean_proposal, 1)
 
     #Vector and Matrix Containers Pre-allocation
@@ -487,8 +487,8 @@ function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,
 
     #Kalman Filter Initialization
     X0 = zeros(3,1) #Do not use list definition, would cause the compiler to simplify the dimension
-    C0 = zeros(3,3)
-    C0[3,3] = kw
+    Cov0 = zeros(3,3)
+    Cov0[3,3] = kw
     g = zeros(1,3)#Observation matrix for single state
     g[1,1] = 1
     R = kv #The single state observation noise covariance. Marginalised Kalman here, so this is the relative noise scale factor.
@@ -507,38 +507,46 @@ function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,
     accumulated_Es = Vector{Float64}(undef, num_particles)
     accumulated_Fs = Vector{Float64}(undef, num_particles)
     accumulated_log_marginals = Vector{Float64}(undef, num_particles)
-    #Initialization
-    previous_log_state_probability = -Inf64 #The prior positions are kept
-    current_log_state_probability = 0.0
+
+
 
     #GRW MCMC
-    @showprogress for i = 2:(num_iter+1)
-        #Read the proposed positions
-        theta = theta_samples[i-1]
-        beta = beta_samples[i-1]
-        C = C_samples[i-1]
-        #The redundant returned values are kept for possible future use. So far, only the accumulated_log_marginals is used
-        inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,C0, g,R, evaluation_points)
-        current_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
+    #Initialization
+    inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta0,beta0,C0, h, alphaws, betaws, X0,Cov0, g,R, evaluation_points)
+    previous_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
+    current_log_state_probability = 0.0
+    acceptance_log_probabilities = zeros(num_iter)
+    #Initial Proposal
+    theta = theta_samples[1]+ randn() * l_theta0
+    beta = abs(beta_samples[1]+ randn() * l_beta0)
+    C = abs(C_samples[1] + randn() * l_C0)
 
-        #Rejection Case, else accept
-        if log(rand()) > (current_log_state_probability - previous_log_state_probability) 
-            #Reject the samples in the rejection case
-            theta_samples[i-1] = copy(theta_samples[i-2])
-            C_samples[i-1] = copy(C_samples[i-1])
-            beta_samples[i-1] = copy(beta_samples[i-2])
-        else
-            #Only need to update the previous log probability, since the samples are already stored
+
+    @showprogress for i = 1:num_iter
+        #The redundant returned values are kept for possible future use. So far, only the accumulated_log_marginals is used
+        inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,Cov0, g,R, evaluation_points)
+        current_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
+        acceptance_log_probabilities[i] = current_log_state_probability - previous_log_state_probability
+        #Acceptance Case
+        if log(rand()) < acceptance_log_probabilities[i]
+            #Accept the samples
+            theta_samples[i+1] = copy(theta)
+            C_samples[i+1] = copy(C)
+            beta_samples[i+1] = copy(beta)
             previous_log_state_probability = current_log_state_probability
+        else
+            theta_samples[i+1] = theta_samples[i]
+            C_samples[i+1] = C_samples[i]
+            beta_samples[i+1] = beta_samples[i]
         end
 
         #Propose the new positions via GRW
-        theta_samples[i] = theta_samples[i-1] + randn() * l_theta0
-        beta_samples[i] = abs(beta_samples[i-1] + randn() * l_beta0)
-        C_samples[i] = abs(C_samples[i-1] + randn() * l_C0)
+        theta = theta_samples[i+1] + randn() * l_theta0
+        beta = abs(beta_samples[i+1] + randn() * l_beta0)
+        C = abs(C_samples[i+1] + randn() * l_C0)
     end
 
-    return theta_samples, beta_samples, C_samples
+    return theta_samples, beta_samples, C_samples,acceptance_log_probabilities
 
 end
 

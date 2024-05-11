@@ -376,6 +376,7 @@ class SDE(Levy_Point_Process):
                 NVM_jump = NVM_jumps[j]
                 system_jump = NVM_jump * expm(self.A * (evaluation_point-jump_time)) @ self.h
                 system_jumps.append(list(system_jump))
+                
             samples.append(self.general_integrate([evaluation_point],system_jumps,jump_times)[0])#Extracting the single element at evaluation
         samples = np.array(samples)
         # Squeeze the array to remove the last dimension
