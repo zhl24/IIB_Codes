@@ -54,7 +54,7 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
         t_array = Int64.(1:resolution)
         start_indices = (t_array.-1).*c.+1
         end_indices = start_indices .+ c .- 1
-        @inbounds for t in t_array
+        for t in t_array
             start_index = start_indices[t]
             end_index = end_indices[t]
             samples_matrix[n, start_index:end_index] = cumsum(samples_matrix[n, start_index:end_index])
@@ -77,27 +77,29 @@ end
 
 
 #Compatible with single scalar t or a whole t matrix
-function expm_specialized(A, t_matrix)
-    theta = A[2, 2]
-    exp_theta_t = exp.(theta .* t_matrix)  # 对每个元素进行指数计算
-    
-    # 定义 mat1 和 mat2
-    mat1 = [0.0 1.0/theta; 0.0 1.0]
-    mat2 = [1.0 -1.0/theta; 0.0 0.0]
+#function expm_specialized(A, t_matrix)
+#    exp_theta_t = exp.(A[2, 2] .* t_matrix)  # 对每个元素进行指数计算
+#    
+#    # 定义 mat1 和 mat2
+#    mat1 = [0.0 1.0/A[2, 2]; 0.0 1.0]
+#    mat2 = [1.0 -1.0/A[2, 2]; 0.0 0.0]
+#
+#    # 初始化结果数组，每个元素是独立的2x2矩阵
+#    result = Array{Matrix{Float64}, 2}(undef, size(t_matrix, 1), size(t_matrix, 2))
+#    
+#    for i in 1:size(t_matrix, 1)
+#        for j in 1:size(t_matrix, 2)
+#            # 计算每个元素对应的结果矩阵
+#            result[i, j] = exp_theta_t[i, j] * mat1 + mat2
+#        end
+#    end
+#
+#    return result
+#end
 
-    # 初始化结果数组，每个元素是独立的2x2矩阵
-    result = Array{Matrix{Float64}, 2}(undef, size(t_matrix, 1), size(t_matrix, 2))
-    
-    for i in 1:size(t_matrix, 1)
-        for j in 1:size(t_matrix, 2)
-            # 计算每个元素对应的结果矩阵
-            result[i, j] = exp_theta_t[i, j] * mat1 + mat2
-        end
-    end
-
-    return result
+function expm_specialized(A, t)
+    return [0 1/A[2,2];0 1] .* exp(A[2, 2] *t) + [1  -1/ A[2,2]; 0 0]
 end
-
 
 
 
@@ -109,10 +111,8 @@ function vectorized_particle_transition_function(beta, C, T, resolution, num_par
     exp_theta_t = exp.(theta .* jump_time_matrix)  # 对每个元素进行指数计算
     
     # 定义 mat1 和 mat2
-    mat1 = [0.0 1.0/theta; 0.0 1.0]
-    mat2 = [1.0 -1.0/theta; 0.0 0.0]
-    temp_mean_matrix = mat1 * h
-    temp_mat2_h = mat2 * h
+    temp_mean_matrix = [0.0 1.0/theta; 0.0 1.0] * h
+    temp_mat2_h = [1.0 -1.0/theta; 0.0 0.0] * h
     # 初始化结果2D数组
     mean_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
     cov_matrix = Array{Matrix{Float64}, 2}(undef, size(jump_time_matrix, 1), size(jump_time_matrix, 2))
@@ -123,8 +123,8 @@ function vectorized_particle_transition_function(beta, C, T, resolution, num_par
             mean_matrix[i,j] *= gamma_jump_matrix[i,j]
         end
     end
-    mean_matrix = reshape(sum(reshape(mean_matrix, num_particles, resolution, c), dims=3), num_particles, resolution)
-    cov_matrix = reshape(sum(reshape(cov_matrix, num_particles, resolution, c), dims=3), num_particles, resolution)
+    mean_matrix = reshape(sum(reshape(mean_matrix',c , resolution,num_particles), dims=1), resolution, num_particles)'
+    cov_matrix = reshape(sum(reshape(cov_matrix',c, resolution, num_particles), dims=1), resolution, num_particles)'
 
     return mean_matrix, cov_matrix
 end
@@ -157,27 +157,24 @@ end
 function generate_SDE_samples(subordinator_jumps,jump_times,muw,sigmaw,A,h,evaluation_points) #The subordinator to be used is Gamma. jump times are inherited across all jump types
     NVM_jumps = muw .* subordinator_jumps .+ sigmaw .* sqrt.(subordinator_jumps) .* randn(size(subordinator_jumps))
     samples = zeros(2,length(evaluation_points))
-
+    #system_jumps = zeros(2,length(evaluation_points))
     for (i, evaluation_point) in enumerate(evaluation_points)
-        sample = 0
+        sample = zeros(2,1)
         #print(i)
         for (j, jump_time) in enumerate(jump_times)
             NVM_jump = NVM_jumps[j]
             if jump_time < evaluation_point
-                 #An internal check here for simplicity
                 expt = expm_specialized(A, evaluation_point - jump_time)
-                #println(size(NVM_jump))
-                #println(size(expt[1,1]))
-                #println(size(h))
-                system_jump = NVM_jump .* expt[1,1]* h
-                #print(expm_specialized(A, evaluation_point - jump_time)*h)
+                #println(expt)
+                #expt = exp(A .*(evaluation_point - jump_time))
+                system_jump =  expt * (NVM_jump .* h)
+                #system_jump = expt* h .* NVM_jump
                 sample = sample .+ system_jump 
-                #print(sample)
-                #print(size(sample))
+
             end
         end
         #Compute the sample value at each time point
-        samples[:,i] .= sample
+        samples[:,i] = sample
     end
 
     return samples
@@ -197,7 +194,7 @@ function log_probs_to_normalised_probs(log_likelihoods)
     else
         normalized_log_likelihoods = log_likelihoods .- normalization_factor
         probabilities = exp.(normalized_log_likelihoods)
-        probabilities .= probabilities / sum(probabilities)  # 确保概率之和为1
+        probabilities = probabilities / sum(probabilities)  # 确保概率之和为1
     end
 
     return probabilities
@@ -241,7 +238,7 @@ function Kalman_correct(X, P, Y, g, R)
     Ino = Y - dot(g,X)
     # Innovation covariance
     S = dot(g ,P * g') + R
-    K = P * g' / S
+    K = P * g' ./ S
     return X + K * Ino, (I - K * g) * P, log(S), Ino / S * Ino
 end
 
@@ -312,7 +309,7 @@ function NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_
     
     accumulated_log_marginals = -M*N/2.0*log(2*pi) .+ accumulated_Fs + alphaws .* log.(betaws) - (alphaws.+N/2.0) .* log.(betaws + accumulated_Es./2.0) .+ gammaln_half_N_plus_alpha .- gammaln_alphaws
     log_marginals = -M/2*log(2.0*pi) .+ new_Fs .- (alphaws.+N/2.0) .* log.(betaws .+ accumulated_Es./2.0) .+ (alphaws .+ (N-1.0)/2.0) .* log.(betaws .+ (accumulated_Es .- new_Es)./2.0) .+ gammaln_half_N_plus_alpha .- gammaln_half_N_minus1_plus_alpha
-
+    #Resampling
     weights = log_probs_to_normalised_probs(log_marginals)
     indices = sample(1:num_particles, Weights(weights), num_particles; replace=true)
 
@@ -369,7 +366,7 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
     #Build the time axis
     evaluation_points = collect(range(0,T,resolution)) #Use collect to convert the range object to array
     dt = T/resolution #The time step size
-    matrix_exp = expm_specialized(A,dt)[1] #Constant factor used to construct the transition matrix
+    matrix_exp = expm_specialized(A,dt) #Constant factor used to construct the transition matrix
     #println(size(A))
     #println(size(matrix_exp))
     #Particle Filter Initialization
@@ -428,7 +425,7 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
     A[1,2] = 1.0
     A[2,2] = theta
     dt = T/resolution #The time step size
-    matrix_exp = expm_specialized(A,dt)[1] #Constant factor used to construct the transition matrix
+    matrix_exp = expm_specialized(A,dt) #Constant factor used to construct the transition matrix
 
 
     mean_proposals , cov_proposals = vectorized_particle_transition_function(beta, C, T, resolution, num_particles, A, h ;c=10)
@@ -524,11 +521,15 @@ function Normal_Gamma_Langevin_GRW_MCMC(observations,resolution,T,num_particles,
         inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,C0, g,R, evaluation_points)
         current_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
 
-        #Rejection Case
+        #Rejection Case, else accept
         if log(rand()) > (current_log_state_probability - previous_log_state_probability) 
-            theta_samples[i-1] = theta_samples[i-2]
-            C_samples[i-1] = C_samples[i-1]
-            beta_samples[i-1] = beta_samples[i-2]
+            #Reject the samples in the rejection case
+            theta_samples[i-1] = copy(theta_samples[i-2])
+            C_samples[i-1] = copy(C_samples[i-1])
+            beta_samples[i-1] = copy(beta_samples[i-2])
+        else
+            #Only need to update the previous log probability, since the samples are already stored
+            previous_log_state_probability = current_log_state_probability
         end
 
         #Propose the new positions via GRW
