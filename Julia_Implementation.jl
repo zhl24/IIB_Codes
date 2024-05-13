@@ -24,12 +24,12 @@ export NVM_mpf_1tstep
 export Normal_Gamma_Langevin_MPF
 export Normal_Gamma_Langevin_GRW_MCMC
 export plot_samples_distribution
-
+export thin_samples
 
 
 #Plotting Functions ##############################################################################################################################################################
 function plot_samples_distribution(samples, true_value, title;bin_num = 30)
-    plt = histogram(samples, bins=bin_num, alpha=0.6, label="Samples Distribution", title=title, xlabel="Value", ylabel="Frequency")
+    plt = histogram(samples, bins=bin_num, normalize=true, alpha=0.6, label="Samples Distribution", title=title, xlabel="Value", ylabel="Frequency")
     vline!([mean(samples)], label="Mean", color=:red)
     vline!([true_value], label="True Value", color=:green)
 
@@ -40,13 +40,24 @@ function plot_samples_distribution(samples, true_value, title;bin_num = 30)
 end
 
 
+#Thinning Function ######################################################################################################################################################
+function thin_samples(samples::Array, thin_factor::Int)
+    # 检查 thin_factor 是否合理
+    if thin_factor <= 0
+        error("Thinning factor must be a positive integer.")
+    end
+    
+    # 从样本中每隔 thin_factor 取一个样本
+    thinned_samples = samples[1:thin_factor:end]
+    return thinned_samples
+end
+
 
 #Proposal Generator########################################################################################################################################################################################################
-
-
-function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, c::Int=50) #Resolutuon is the total number of data points, and T is the total length of the time frame
+function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, c::Int=50; ) #Resolutuon is the total number of data points, and T is the total length of the time frame
     dt = T / resolution
-    rng = MersenneTwister()  # 创建一个随机数生成器实例
+    #rng = MersenneTwister()  # 创建一个随机数生成器实例
+    rng = Xoshiro()
     # 使用显式的 RNG 实例生成随机数
     samples_matrix = rand(rng, Exponential(1/dt), num_particles, c*resolution)
     jump_time_matrix = rand(rng, Uniform(0, dt), num_particles, c*resolution)
@@ -399,8 +410,8 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
 
         previous_Xs, previous_X_uncertaintys, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals = NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_proposal, cov_proposal, matrix_exp, g, R, alphaws, betaws, accumulated_Es, accumulated_Fs, i)
 
-        inferred_Xs[i] = weighted_sum(previous_Xs,weights)
-        inferred_covs[i] = weighted_sum(previous_X_uncertaintys,weights)
+        inferred_Xs[i] = weighted_sum(previous_Xs,weights) 
+        inferred_covs[i] = weighted_sum(previous_X_uncertaintys,weights) * sigmaw2
 
     end
 
@@ -419,7 +430,7 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
     #theta is the Langevin parameter. beta and C are the parameters for the Gamma process.
     #kw is the prior parameter for muw inference
     #alphaw_prior and betaw_prior are scalar parameters for the prior in posterior inference of sigmaw
-    # Kalman parameters are just Kalman parameters
+    # X0 and C0 are the Kalman prior parameters
     #kv is the guess for the relative observation noise
     A = zeros(2,2)
     A[1,2] = 1.0
@@ -458,7 +469,7 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
         previous_Xs, previous_X_uncertaintys, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals = NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_proposal, cov_proposal, matrix_exp, g, R, alphaws, betaws, accumulated_Es, accumulated_Fs, i)
 
         inferred_Xs[i] = weighted_sum(previous_Xs,weights)
-        inferred_covs[i] = weighted_sum(previous_X_uncertaintys,weights)
+        inferred_covs[i] = weighted_sum(previous_X_uncertaintys,weights) * sigmaw2
 
     end
 
