@@ -617,7 +617,7 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
     C = abs(C_samples[1] + randn() * l_C0)
     rejection_count = 0 #Re-compute the original state probability
 
-    @showprogress for i = 1:num_iter
+    @showprogress 18000 for i = 1:num_iter
         #The redundant returned values are kept for possible future use. So far, only the accumulated_log_marginals is used
         inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,Cov0, g,R, evaluation_points)
         current_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
