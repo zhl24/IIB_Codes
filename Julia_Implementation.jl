@@ -638,8 +638,9 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
             rejection_count += 1
             if rejection_count > rejection_limit
                 inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta_samples[i],beta_samples[i],C_samples[i], h, alphaws, betaws, X0,Cov0, g,R, evaluation_points)
-                previous_log_state_probability = logsumexp([previous_log_state_probability + log(rejection_count - 1), logsumexp(accumulated_log_marginals) - log(num_particles)]) - log(rejection_count)
-                #rejection_count = 0
+                previous_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
+                #previous_log_state_probability = logsumexp([previous_log_state_probability + log(rejection_count - rejection_limit), logsumexp(accumulated_log_marginals) - log(num_particles)]) - log(rejection_count-rejection_limit + 1)
+                rejection_count = 0
             end
         end
 
