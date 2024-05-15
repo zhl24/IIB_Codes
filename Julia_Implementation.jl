@@ -646,8 +646,14 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
 
         #Propose the new positions via GRW
         theta = theta_samples[i+1] + randn() * l_theta0
-        beta = abs(beta_samples[i+1] + randn() * l_beta0)
-        C = abs(C_samples[i+1] + randn() * l_C0)
+        beta = beta_samples[i+1] + randn() * l_beta0
+        if beta <= 0
+            beta=0.001
+        end
+        C = C_samples[i+1] + randn() * l_C0
+        if C <= 0
+            C = 0.001
+        end
     end
 
     return theta_samples, beta_samples, C_samples,acceptance_log_probabilities
