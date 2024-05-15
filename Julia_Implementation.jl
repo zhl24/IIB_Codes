@@ -397,7 +397,8 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
 
 
     #Running the marginalised particle filter
-    @showprogress for i in 1:resolution
+    #@showprogress 
+    @showprogress 18000 for i in 1:resolution
         t = evaluation_points[i]
         observation = observations[i]
 
@@ -476,6 +477,67 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
     return inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals
 
 end
+
+
+
+function Normal_Gamma_Langevin_Grid_Search(observations,resolution,T,num_particles,kw ,alphaw_prior,betaw_prior,kv, theta_values,beta_values, C_values)
+    
+
+    #Langevin System Specifications
+    h = zeros(2,1)
+    h[2,1] = 1
+
+    #Prior construction
+    alphaws = alphaw_prior .* ones(num_particles)
+    betaws = betaw_prior .* ones(num_particles)
+
+    #Kalman Filter Initialization
+    X0 = zeros(3,1) #Do not use list definition, would cause the compiler to simplify the dimension
+    Cov0 = zeros(3,3)
+    Cov0[3,3] = kw
+    g = zeros(1,3)#Observation matrix for single state
+    g[1,1] = 1
+    R = kv #The single state observation noise covariance. Marginalised Kalman here, so this is the relative noise scale factor.
+
+    #Build the time axis
+    evaluation_points = collect(range(0,T,resolution)) #Use collect to convert the range object to array
+
+    #Container pre-allocation
+    # 预分配 inferred_Xs 和 inferred_covs
+    inferred_Xs = [Matrix{Float64}(undef, 2, 2) for _ in 1:resolution]
+    inferred_covs = [Matrix{Float64}(undef, 2, 2) for _ in 1:resolution]
+    # 预分配 sigmaw2_means 和 sigmaw2_uncertaintys
+    sigmaw2_means = Vector{Float64}(undef, resolution)
+    sigmaw2_uncertaintys = Vector{Float64}(undef, resolution)
+    # 预分配 accumulated_Es, accumulated_Fs, 和 accumulated_log_marginals
+    accumulated_Es = Vector{Float64}(undef, num_particles)
+    accumulated_Fs = Vector{Float64}(undef, num_particles)
+    accumulated_log_marginals = Vector{Float64}(undef, num_particles)
+
+    l_theta = length(theta_values)
+    l_beta = length(beta_values)
+    l_C = length(C_values)
+    log_probabilities = zeros(l_theta,l_beta,l_C)
+    @showprogress for i in 1:l_theta
+        for j in 1:l_beta
+            for k in 1:l_C
+                theta = theta_values[i]
+                beta = beta_values[j]
+                C = C_values[k]
+                #The redundant returned values are kept for possible future use. So far, only the accumulated_log_marginals is used
+                inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,Cov0, g,R, evaluation_points)
+                log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
+                log_probabilities[i,j,k] = log_state_probability
+
+            end
+
+            
+        end
+    end
+    return log_probabilities
+
+end
+
 
 
 
@@ -646,8 +708,8 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
 
         #Propose the new positions via GRW
         theta = theta_samples[i+1] + randn() * l_theta0
-        beta = abs(beta_samples[i+1] + randn() * l_beta0)
-        C = abs(C_samples[i+1] + randn() * l_C0)
+        beta = beta_samples[i+1] + randn() * l_beta0
+        C = C_samples[i+1] + randn() * l_C0
     end
 
     return theta_samples, beta_samples, C_samples,acceptance_log_probabilities
