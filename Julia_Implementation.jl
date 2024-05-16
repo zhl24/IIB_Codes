@@ -25,6 +25,7 @@ export Normal_Gamma_Langevin_MPF
 export Normal_Gamma_Langevin_GRW_MCMC
 export plot_samples_distribution
 export thin_samples
+export parallel_particle_Gamma_generator
 
 
 #Plotting Functions ##############################################################################################################################################################
@@ -84,6 +85,36 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
     return samples_matrix, jump_time_matrix
 end
 
+
+function parallel_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, c::Int=50; ) #Resolutuon is the total number of data points, and T is the total length of the time frame
+    dt = T / resolution
+    #rng = MersenneTwister()  # 创建一个随机数生成器实例
+    rng = Xoshiro()
+    # 使用显式的 RNG 实例生成随机数
+    samples_matrix = rand(rng, Exponential(1/dt), num_particles, c*resolution)
+    jump_time_matrix = rand(rng, Uniform(0, dt), num_particles, c*resolution)
+    for n in 1:num_particles
+        t_array = Int64.(1:resolution)
+        start_indices = (t_array.-1).*c.+1
+        end_indices = start_indices .+ c .- 1
+        for t in t_array
+            start_index = start_indices[t]
+            end_index = end_indices[t]
+            samples_matrix[n, start_index:end_index] = cumsum(samples_matrix[n, start_index:end_index])
+        end
+    end
+    for i in 1:num_particles
+        for j in 1:(c*resolution)
+            poisson_epoch = samples_matrix[i, j]
+            x = 1 / (beta * (exp(poisson_epoch / C) - 1))
+            p = (1 + beta * x) * exp(-beta * x)
+            samples_matrix[i, j] = rand() <= p ? x : 0
+        end
+    end
+    #jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)
+    
+    return samples_matrix, jump_time_matrix
+end
 
 
 
@@ -673,6 +704,7 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
     previous_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
     current_log_state_probability = 0.0
     acceptance_log_probabilities = zeros(num_iter)
+    dist = Normal(0,1) #The standard normal distribution to be used to compute the truncated acceptance probability
     #Initial Proposal
     theta = theta_samples[1]+ randn() * l_theta0
     beta = abs(beta_samples[1]+ randn() * l_beta0)
@@ -683,7 +715,7 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
         #The redundant returned values are kept for possible future use. So far, only the accumulated_log_marginals is used
         inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,Cov0, g,R, evaluation_points)
         current_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
-        acceptance_log_probabilities[i] = current_log_state_probability - previous_log_state_probability
+        acceptance_log_probabilities[i] = current_log_state_probability - previous_log_state_probability + logcdf(dist,C_samples[i])- logcdf(dist,C) + logcdf(dist,beta_samples[i]) - logcdf(dist,beta)
         #Acceptance Case
         if log(rand()) < acceptance_log_probabilities[i]
             #Accept the samples
@@ -706,15 +738,15 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
             end
         end
 
-        #Propose the new positions via GRW
+        #Propose the new positions via GRW. Truncated Gaussian is used
         theta = theta_samples[i+1] + randn() * l_theta0
         beta = beta_samples[i+1] + randn() * l_beta0
-        if beta <= 0
-            beta=0.001
+        while beta <= 0
+            beta = beta_samples[i+1] + randn() * l_beta0
         end
         C = C_samples[i+1] + randn() * l_C0
-        if C <= 0
-            C = 0.001
+        while C <= 0
+            C = C_samples[i+1] + randn() * l_C0
         end
     end
 
