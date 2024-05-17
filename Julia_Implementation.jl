@@ -25,7 +25,7 @@ export Normal_Gamma_Langevin_MPF
 export Normal_Gamma_Langevin_GRW_MCMC
 export plot_samples_distribution
 export thin_samples
-export parallel_particle_Gamma_generator
+
 
 
 #Plotting Functions ##############################################################################################################################################################
@@ -85,25 +85,28 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
     return samples_matrix, jump_time_matrix
 end
 
-
-function parallel_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, c::Int=50; ) #Resolutuon is the total number of data points, and T is the total length of the time frame
+#Overloaded Multi-thread version
+function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, parallel::Bool=true, c::Int=50 ) #Resolutuon is the total number of data points, and T is the total length of the time frame
     dt = T / resolution
     #rng = MersenneTwister()  # 创建一个随机数生成器实例
-    rng = Xoshiro()
+    exp_dist = Exponential(1/dt)
+    uni_dist = Uniform(0,dt)
     # 使用显式的 RNG 实例生成随机数
-    samples_matrix = rand(rng, Exponential(1/dt), num_particles, c*resolution)
-    jump_time_matrix = rand(rng, Uniform(0, dt), num_particles, c*resolution)
-    for n in 1:num_particles
-        t_array = Int64.(1:resolution)
-        start_indices = (t_array.-1).*c.+1
-        end_indices = start_indices .+ c .- 1
+    samples_matrix = zeros(num_particles,c*resolution)
+    jump_time_matrix = similar(samples_matrix)
+    t_array = Int64.(1:resolution)
+    start_indices = (t_array.-1).*c.+1
+    end_indices = start_indices .+ c .- 1
+
+    @threads for i in 1:num_particles
+        rng = Xoshiro()
+        samples_matrix[i,:] = rand(rng, exp_dist, c*resolution)
+        jump_time_matrix[i,:] = rand(rng, uni_dist, c*resolution)
         for t in t_array
             start_index = start_indices[t]
             end_index = end_indices[t]
-            samples_matrix[n, start_index:end_index] = cumsum(samples_matrix[n, start_index:end_index])
+            samples_matrix[i, start_index:end_index] = cumsum(samples_matrix[i, start_index:end_index])
         end
-    end
-    for i in 1:num_particles
         for j in 1:(c*resolution)
             poisson_epoch = samples_matrix[i, j]
             x = 1 / (beta * (exp(poisson_epoch / C) - 1))
@@ -111,8 +114,7 @@ function parallel_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64
             samples_matrix[i, j] = rand() <= p ? x : 0
         end
     end
-    #jump_time_matrix = rand(Uniform(0, dt), num_particles, c*resolution)
-    
+  
     return samples_matrix, jump_time_matrix
 end
 
