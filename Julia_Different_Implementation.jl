@@ -350,6 +350,7 @@ function NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_
 
     
     log_marginals = -M/2*log(2.0*pi) .+ new_Fs .- (alphaws.+N/2.0) .* log.(betaws .+ accumulated_Es./2.0) .+ (alphaws .+ (N-1.0)/2.0) .* log.(betaws .+ (accumulated_Es .- new_Es)./2.0) .+ gammaln_half_N_plus_alpha .- gammaln_half_N_minus1_plus_alpha
+    accumulated_log_marginals = copy(log_marginals)
     #Resampling
     weights = log_probs_to_normalised_probs(log_marginals)
     indices = sample(1:num_particles, Weights(weights), num_particles; replace=true)
@@ -358,13 +359,13 @@ function NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_
     Xs_inferred = Xs_inferred[indices]
     weights = ones(num_particles) ./ num_particles
     log_marginals = log_marginals[indices]
-    accumulated_log_marginals = accumulated_log_marginals[indices]
+    #accumulated_log_marginals = accumulated_log_marginals[indices]
     alphaws = alphaws[indices]
     betaws = betaws[indices]
     accumulated_Es = accumulated_Es[indices]
     accumulated_Fs = accumulated_Fs[indices]
 
-    accumulated_log_marginals = -M*N/2.0*log(2*pi) .+ accumulated_Fs + alphaws .* log.(betaws) - (alphaws.+N/2.0) .* log.(betaws + accumulated_Es./2.0) .+ gammaln_half_N_plus_alpha .- gammaln_alphaws
+    #accumulated_log_marginals = log_marginals
     
     return Xs_inferred, uncertaintys_inferred, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals
 

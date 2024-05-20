@@ -4,7 +4,7 @@ using Distributions
 using LinearAlgebra
 using Statistics
 using StatsFuns: logsumexp
-using .Threads
+#using .Threads
 using ProgressMeter
 using SpecialFunctions
 using StatsBase
@@ -86,37 +86,37 @@ function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float
 end
 
 #Overloaded Multi-thread version
-function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, parallel::Bool=true, c::Int=50 ) #Resolutuon is the total number of data points, and T is the total length of the time frame
-    dt = T / resolution
-    #rng = MersenneTwister()  # 创建一个随机数生成器实例
-    exp_dist = Exponential(1/dt)
-    uni_dist = Uniform(0,dt)
-    # 使用显式的 RNG 实例生成随机数
-    samples_matrix = zeros(num_particles,c*resolution)
-    jump_time_matrix = similar(samples_matrix)
-    t_array = Int64.(1:resolution)
-    start_indices = (t_array.-1).*c.+1
-    end_indices = start_indices .+ c .- 1
-
-    @threads for i in 1:num_particles
-        rng = Xoshiro()
-        samples_matrix[i,:] = rand(rng, exp_dist, c*resolution)
-        jump_time_matrix[i,:] = rand(rng, uni_dist, c*resolution)
-        for t in t_array
-            start_index = start_indices[t]
-            end_index = end_indices[t]
-            samples_matrix[i, start_index:end_index] = cumsum(samples_matrix[i, start_index:end_index])
-        end
-        for j in 1:(c*resolution)
-            poisson_epoch = samples_matrix[i, j]
-            x = 1 / (beta * (exp(poisson_epoch / C) - 1))
-            p = (1 + beta * x) * exp(-beta * x)
-            samples_matrix[i, j] = rand() <= p ? x : 0
-        end
-    end
-  
-    return samples_matrix, jump_time_matrix
-end
+#function vectorized_particle_Gamma_generator(beta::Float64, C::Float64, T::Float64, resolution::Int, num_particles::Int, parallel::Bool=true, c::Int=50 ) #Resolutuon is the total number of data points, and T is the total length of the time frame
+#    dt = T / resolution
+#    #rng = MersenneTwister()  # 创建一个随机数生成器实例
+#    exp_dist = Exponential(1/dt)
+#    uni_dist = Uniform(0,dt)
+#    # 使用显式的 RNG 实例生成随机数
+#    samples_matrix = zeros(num_particles,c*resolution)
+#    jump_time_matrix = similar(samples_matrix)
+#    t_array = Int64.(1:resolution)
+#    start_indices = (t_array.-1).*c.+1
+#    end_indices = start_indices .+ c .- 1
+#
+#    @threads for i in 1:num_particles
+#        rng = Xoshiro()
+#        samples_matrix[i,:] = rand(rng, exp_dist, c*resolution)
+#        jump_time_matrix[i,:] = rand(rng, uni_dist, c*resolution)
+#        for t in t_array
+#            start_index = start_indices[t]
+#            end_index = end_indices[t]
+#            samples_matrix[i, start_index:end_index] = cumsum(samples_matrix[i, start_index:end_index])
+#        end
+#        for j in 1:(c*resolution)
+#            poisson_epoch = samples_matrix[i, j]
+#            x = 1 / (beta * (exp(poisson_epoch / C) - 1))
+#            p = (1 + beta * x) * exp(-beta * x)
+#            samples_matrix[i, j] = rand() <= p ? x : 0
+#        end
+#    end
+#  
+#    return samples_matrix, jump_time_matrix
+#end
 
 
 
@@ -717,7 +717,8 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
         #The redundant returned values are kept for possible future use. So far, only the accumulated_log_marginals is used
         inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals = Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta,beta,C, h, alphaws, betaws, X0,Cov0, g,R, evaluation_points)
         current_log_state_probability = logsumexp(accumulated_log_marginals) - log(num_particles)
-        acceptance_log_probabilities[i] = current_log_state_probability - previous_log_state_probability + logcdf(dist,C_samples[i])- logcdf(dist,C) + logcdf(dist,beta_samples[i]) - logcdf(dist,beta)
+        acceptance_log_probabilities[i] = current_log_state_probability - previous_log_state_probability + logcdf(dist,C_samples[i]/l_C0)- logcdf(dist,C/l_C0) + logcdf(dist,beta_samples[i]/l_beta0) - logcdf(dist,beta/l_beta0)
+        #acceptance_log_probabilities[i] = current_log_state_probability - previous_log_state_probability
         #Acceptance Case
         if log(rand()) < acceptance_log_probabilities[i]
             #Accept the samples
@@ -743,11 +744,11 @@ function Normal_Gamma_Langevin_GRW_MCMC_double_update(observations,resolution,T,
         #Propose the new positions via GRW. Truncated Gaussian is used
         theta = theta_samples[i+1] + randn() * l_theta0
         beta = beta_samples[i+1] + randn() * l_beta0
-        while beta <= 0
+        while beta < 0.0001
             beta = beta_samples[i+1] + randn() * l_beta0
         end
         C = C_samples[i+1] + randn() * l_C0
-        while C <= 0
+        while C < 0.0001
             C = C_samples[i+1] + randn() * l_C0
         end
     end
