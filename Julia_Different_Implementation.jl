@@ -1,4 +1,4 @@
-module Julia_Implementation
+module Julia_Different_Implementation
 using Random
 using Distributions
 using LinearAlgebra
@@ -353,6 +353,9 @@ function NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_
     accumulated_log_marginals = copy(log_marginals)
     #Resampling
     weights = log_probs_to_normalised_probs(log_marginals)
+    real_weights = copy(weights)
+    ess_ratio = 1/sum(real_weights.^2)/num_particles
+
     indices = sample(1:num_particles, Weights(weights), num_particles; replace=true)
 
     uncertaintys_inferred = uncertaintys_inferred[indices]
@@ -367,7 +370,7 @@ function NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_
 
     #accumulated_log_marginals = log_marginals
     
-    return Xs_inferred, uncertaintys_inferred, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals
+    return Xs_inferred, uncertaintys_inferred, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, ess_ratio, accumulated_log_marginals
 
 end
 
@@ -426,8 +429,8 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
     accumulated_log_marginals = zeros(num_particles)
     inferred_Xs = [copy(X0) for _ in 1:resolution]
     inferred_covs = [copy(C0) for _ in 1:resolution]
-
-
+    ess_ratios = zeros(resolution)
+    
     #Running the marginalised particle filter
     #@showprogress 
     @showprogress 18000 for i in 1:resolution
@@ -441,14 +444,14 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
         sigmaw2_means[i] = sigmaw2
         sigmaw2_uncertaintys[i] = sigmaw2_uncertainty
 
-        previous_Xs, previous_X_uncertaintys, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, accumulated_log_marginals = NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_proposal, cov_proposal, matrix_exp, g, R, alphaws, betaws, accumulated_Es, accumulated_Fs, i)
+        previous_Xs, previous_X_uncertaintys, weights, alphaws, betaws, accumulated_Es, accumulated_Fs, ess_ratio, accumulated_log_marginals = NVM_mpf_1tstep(observation, previous_Xs, previous_X_uncertaintys, mean_proposal, cov_proposal, matrix_exp, g, R, alphaws, betaws, accumulated_Es, accumulated_Fs, i)
 
         inferred_Xs[i] = weighted_sum(previous_Xs,weights) 
         inferred_covs[i] = weighted_sum(previous_X_uncertaintys,weights) * sigmaw2
-
+        ess_ratios[i] = ess_ratio
     end
 
-    return inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals
+    return inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, ess_ratios, accumulated_log_marginals
 
 end
 
@@ -486,7 +489,7 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
     inferred_Xs = [copy(X0) for _ in 1:resolution]
     inferred_covs = [copy(C0) for _ in 1:resolution]
 
-
+    ess_ratios = zeros(resolution)
     #Running the marginalised particle filter
     for i in 1:resolution
         t = evaluation_points[i]
@@ -503,7 +506,7 @@ function Normal_Gamma_Langevin_MPF(observations,resolution,T,num_particles,theta
 
         inferred_Xs[i] = weighted_sum(previous_Xs,weights)
         inferred_covs[i] = weighted_sum(previous_X_uncertaintys,weights) * sigmaw2
-
+        ess_ratios[i] = ess_ratio
     end
 
     return inferred_Xs, inferred_covs, sigmaw2_means, sigmaw2_uncertaintys, accumulated_Es, accumulated_Fs, accumulated_log_marginals
